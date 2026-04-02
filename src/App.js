@@ -1025,7 +1025,7 @@ function PivotPlatform({ config, onBack }) {
   // ===== RENDER =====
   return (
     <div className="min-h-screen bg-slate-950 text-white p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-full mx-auto px-2">
         {/* Header with Back Button */}
         <div className="mb-8">
           <button onClick={onBack} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors">
