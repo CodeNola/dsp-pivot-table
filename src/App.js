@@ -1649,12 +1649,12 @@ export default function PivotTableApp() {
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-gradient-to-r from-slate-800 to-slate-700">
-              <th className="text-left p-3 text-cyan-300 font-semibold border border-slate-600">
+              <th className="text-left px-3 py-1.5 text-cyan-300 font-semibold border border-slate-600">
                 {pivotConfig.rowField}
               </th>
               {pivotConfig.valueFields.map((vf, vfIndex) => (
                 vf.field && (
-                  <th key={vfIndex} className="text-right p-3 text-cyan-300 font-semibold border border-slate-600">
+                  <th key={vfIndex} className="text-right px-3 py-1.5 text-cyan-300 font-semibold border border-slate-600">
                     {getAggregationLabel(vf.aggregation)} of {vf.field}
                   </th>
                 )
@@ -1683,7 +1683,7 @@ export default function PivotTableApp() {
                     onClick={() => toggleRowExpansion(`${pivot.dsp}-${parentKey}`)}
                   >
                     <td 
-                      className={`p-3 border border-slate-700 cursor-pointer ${
+                      className={`px-3 py-1.5 border border-slate-700 cursor-pointer ${
                         getRowLabelHighlightClass(rowLabelCellId) || 'text-white'
                       }`}
                       onClick={(e) => {
@@ -1699,9 +1699,7 @@ export default function PivotTableApp() {
                         )}
                         <div className="flex flex-col">
                           <span>{parentKey}</span>
-                          {getTransporterName(parentKey) && (
-                            <span className="text-xs text-cyan-300 font-normal">({getTransporterName(parentKey)})</span>
-                          )}
+                          <span className={`text-xs font-normal ${getTransporterName(parentKey) ? 'text-cyan-300' : 'text-slate-600'}`}>({getTransporterName(parentKey) || '—'})</span>
                         </div>
                       </div>
                     </td>
@@ -1714,7 +1712,7 @@ export default function PivotTableApp() {
                       return (
                         <td 
                           key={vfIndex}
-                          className={`p-3 text-right border border-slate-700 cursor-pointer transition-all ${
+                          className={`px-3 py-1.5 text-right border border-slate-700 cursor-pointer transition-all ${
                             highlightClass || 'text-white'
                           }`}
                           onClick={(e) => {
@@ -1744,7 +1742,7 @@ export default function PivotTableApp() {
                         className="bg-slate-950 hover:bg-slate-900"
                       >
                         <td 
-                          className={`p-3 border border-slate-700 pl-10 cursor-pointer ${
+                          className={`px-3 py-1.5 border border-slate-700 pl-10 cursor-pointer ${
                             getRowLabelHighlightClass(childRowLabelCellId) || 'text-gray-300'
                           }`}
                           onClick={(e) => toggleManualHighlight(childRowLabelCellId, e)}
@@ -1760,7 +1758,7 @@ export default function PivotTableApp() {
                           return (
                             <td 
                               key={vfIndex}
-                              className={`p-3 text-right border border-slate-700 cursor-pointer transition-all ${
+                              className={`px-3 py-1.5 text-right border border-slate-700 cursor-pointer transition-all ${
                                 highlightClass || 'text-gray-300'
                               }`}
                               onClick={(e) => toggleManualHighlight(cellId, e)}
@@ -1805,12 +1803,12 @@ export default function PivotTableApp() {
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-gradient-to-r from-slate-800 to-slate-700">
-              <th className="text-left p-3 text-cyan-300 font-semibold border border-slate-600">
+              <th className="text-left px-3 py-1.5 text-cyan-300 font-semibold border border-slate-600">
                 {pivotConfig.rowField}
               </th>
               {pivotConfig.valueFields.map((vf, vfIndex) => (
                 vf.field && (
-                  <th key={vfIndex} className="text-right p-3 text-cyan-300 font-semibold border border-slate-600">
+                  <th key={vfIndex} className="text-right px-3 py-1.5 text-cyan-300 font-semibold border border-slate-600">
                     {getAggregationLabel(vf.aggregation)} of {vf.field}
                   </th>
                 )
@@ -1828,16 +1826,14 @@ export default function PivotTableApp() {
                   className="bg-slate-900 hover:bg-slate-800"
                 >
                   <td 
-                    className={`p-3 border border-slate-700 font-medium cursor-pointer ${
+                    className={`px-3 py-1.5 border border-slate-700 font-medium cursor-pointer ${
                       getRowLabelHighlightClass(rowLabelCellId) || 'text-white'
                     }`}
                     onClick={(e) => toggleManualHighlight(rowLabelCellId, e)}
                   >
                     <div className="flex flex-col">
                       <span>{rowKey}</span>
-                      {getTransporterName(rowKey) && (
-                        <span className="text-xs text-cyan-300 font-normal">({getTransporterName(rowKey)})</span>
-                      )}
+                      <span className={`text-xs font-normal ${getTransporterName(rowKey) ? 'text-cyan-300' : 'text-slate-600'}`}>({getTransporterName(rowKey) || '—'})</span>
                     </div>
                   </td>
                   {pivotConfig.valueFields.map((vf, vfIndex) => {
@@ -1849,7 +1845,7 @@ export default function PivotTableApp() {
                     return (
                       <td 
                         key={vfIndex}
-                        className={`p-3 text-right border border-slate-700 cursor-pointer transition-all ${
+                        className={`px-3 py-1.5 text-right border border-slate-700 cursor-pointer transition-all ${
                           highlightClass || 'text-white'
                         }`}
                         onClick={(e) => toggleManualHighlight(cellId, e)}
@@ -1896,12 +1892,12 @@ export default function PivotTableApp() {
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-gradient-to-r from-slate-800 to-slate-700">
-              <th className="text-left p-3 text-cyan-300 font-semibold border border-slate-600">
+              <th className="text-left px-3 py-1.5 text-cyan-300 font-semibold border border-slate-600">
                 {pivotConfig.rowField}
               </th>
               {pivotConfig.valueFields.map((vf, vfIndex) => (
                 vf.field && (
-                  <th key={vfIndex} className="text-right p-3 text-cyan-300 font-semibold border border-slate-600">
+                  <th key={vfIndex} className="text-right px-3 py-1.5 text-cyan-300 font-semibold border border-slate-600">
                     {getAggregationLabel(vf.aggregation)} of {vf.field}
                   </th>
                 )
@@ -1919,16 +1915,14 @@ export default function PivotTableApp() {
                   className="bg-slate-900 hover:bg-slate-800"
                 >
                   <td 
-                    className={`p-3 border border-slate-700 font-medium cursor-pointer ${
+                    className={`px-3 py-1.5 border border-slate-700 font-medium cursor-pointer ${
                       getRowLabelHighlightClass(rowLabelCellId) || 'text-white'
                     }`}
                     onClick={(e) => toggleManualHighlight(rowLabelCellId, e)}
                   >
                     <div className="flex flex-col">
                       <span>{rowKey}</span>
-                      {getTransporterName(rowKey) && (
-                        <span className="text-xs text-cyan-300 font-normal">({getTransporterName(rowKey)})</span>
-                      )}
+                      <span className={`text-xs font-normal ${getTransporterName(rowKey) ? 'text-cyan-300' : 'text-slate-600'}`}>({getTransporterName(rowKey) || '—'})</span>
                     </div>
                   </td>
                   {pivotConfig.valueFields.map((vf, vfIndex) => {
@@ -1940,7 +1934,7 @@ export default function PivotTableApp() {
                     return (
                       <td 
                         key={vfIndex}
-                        className={`p-3 text-right border border-slate-700 cursor-pointer transition-all ${
+                        className={`px-3 py-1.5 text-right border border-slate-700 cursor-pointer transition-all ${
                           highlightClass || 'text-white'
                         }`}
                         onClick={(e) => toggleManualHighlight(cellId, e)}
@@ -1966,7 +1960,7 @@ export default function PivotTableApp() {
   // ===== RENDER UI =====
   return (
     <div className="min-h-screen bg-slate-950 text-white p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-full mx-auto">
         
         <div className="mb-8 text-center">
           <h1 className="text-4xl font-bold text-cyan-400 mb-2">
