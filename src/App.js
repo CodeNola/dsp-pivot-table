@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import Papa from 'papaparse';
 import _ from 'lodash';
-import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown } from 'lucide-react';
+import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown, LayoutGrid } from 'lucide-react';
 
 // ============================================================
 // COACHING TIPS CONFIGS
@@ -1681,6 +1681,341 @@ function PivotPlatform({ config, onBack }) {
 // HUB / LANDING PAGE
 // ============================================================
 
+// ============================================================
+// OTD TRACKER (shared, live) — added platform
+// ============================================================
+
+const OTD_NW = 12;
+const OTD_POLL_MS = 3500;
+const OTD_DEFAULT_STATIONS = ["PNPT Pad 2","PNPT Pad 1","NEXL Pad 2","NEXL/LCML Pad 1","LCML Pad 2","TFGL Pad 1","TFGL Pad 2","CLGS Pad 1","CLGS Pad 2","CLGS Pad 1","Pad 2","Pad 1"];
+const OTD_DEFAULT_CPT   = ["10:15","10:20","10:40","10:45","11:05","11:10","11:30","11:35","11:55","12:00","12:20","12:25"];
+const OTD_DEFAULT_STAGE = ["9:50","9:55","10:15","10:20","10:40","10:45","11:05","11:10","11:30","11:35","",""];
+
+// One color per wave, grouped by station like the source sheet.
+const OTD_WAVE_COLORS = ["#2f6df0","#4f8ef7","#e0453f","#f2726e","#37b24d","#74b816","#f0a500","#e6c015","#12b3a6","#10b981","#8b5cf6","#a855f7"];
+
+const OTD_ROWS = [
+  {key:"firstVan",   label:"First Van Arrival",                    type:"time", total:null},
+  {key:"lastVan",    label:"Last Van Arrival",                     type:"time", total:null},
+  {key:"lastDep",    label:"Last Van Departure",                   type:"time", total:null},
+  {key:"stager",     label:"'Stager' Departed (Swipe)",            type:"time", total:null},
+  {key:"cpt",        label:"CPT",                                  type:"time", total:null, cpt:true, def:OTD_DEFAULT_CPT},
+  {key:"reqRoutes",  label:"Routes Requested",                     type:"num",  total:"sum"},
+  {key:"schedRoutes",label:"Routes Scheduled",                     type:"num",  total:"sum"},
+  {key:"actRoutes",  label:"Actual Routes",                        type:"num",  total:"sum"},
+  {key:"dropRoutes", label:"Dropped Routes",                       type:"num",  total:"sum"},
+  {key:"lateVans",   label:"Number of late vans",                  type:"num",  total:"sum"},
+  {key:"lateStaged", label:"Number of late staged routes",         type:"num",  total:"stagepct"},
+  {key:"inProgress", label:"Routes in progress",                   type:"num",  total:null},
+  {key:"unassigned", label:"Unassigned (Routes/picklist)",         type:"text", total:null},
+  {key:"pickTimes",  label:"Average pick times (route/picklist)",  type:"text", total:null},
+  {key:"stageBy",    label:"Stage by time",                        type:"time", total:null, def:OTD_DEFAULT_STAGE},
+  {key:"lastCart",   label:"Time Last Cart Staged",                type:"time", total:null},
+  {key:"stepVan",    label:"Step Van Count",                       type:"num",  total:"sum"},
+  {key:"cdv",        label:"CDV Count",                            type:"num",  total:"sum"},
+];
+const OTD_ROWIDX = {}; OTD_ROWS.forEach((r,i)=>{ OTD_ROWIDX[r.key] = i; });
+
+function otdRGBA(hex, a){
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+function otdTodayISO(){
+  const t = new Date(), z = n => String(n).padStart(2,"0");
+  return t.getFullYear()+"-"+z(t.getMonth()+1)+"-"+z(t.getDate());
+}
+function otdFresh(){
+  const cells = {};
+  OTD_ROWS.forEach(r => {
+    cells[r.key] = [];
+    for (let i=0;i<OTD_NW;i++) cells[r.key][i] = r.def ? (r.def[i]||"") : "";
+  });
+  return { stations: OTD_DEFAULT_STATIONS.slice(), cells };
+}
+const otdNum = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const otdPct = f => (f*100).toFixed(2) + "%";
+
+// Derived values (mirrors the workbook formulas)
+function otdCompute(data){
+  const C = data.cells;
+  const rowTotals = {};
+  OTD_ROWS.forEach(r => {
+    if (r.total === "sum"){
+      let s = 0; for (let i=0;i<OTD_NW;i++) s += otdNum(C[r.key][i]);
+      rowTotals[r.key] = s ? String(s) : (C[r.key].some(v => String(v).trim()!=="") ? "0" : "");
+    } else if (r.total === "stagepct"){
+      let req=0, late=0;
+      for (let i=0;i<OTD_NW;i++){ req += otdNum(C.reqRoutes[i]); late += otdNum(C.lateStaged[i]); }
+      rowTotals[r.key] = req > 0 ? otdPct((req-late)/req) : "";
+    } else rowTotals[r.key] = "";
+  });
+  const act = i => otdNum(C.actRoutes[i]);
+  let totalRoutes = 0; for (let i=0;i<OTD_NW;i++) totalRoutes += act(i);
+  const cum=[]; let run=0; for (let i=0;i<OTD_NW;i++){ run += otdNum(C.lateVans[i]); cum[i]=run; }
+  const cumAct=[]; let ra=0; for (let i=0;i<OTD_NW;i++){ ra += act(i); cumAct[i]=ra; }
+  const anyLateUpTo = i => { for (let j=0;j<=i;j++){ if (String(C.lateVans[j]).trim()!=="") return true; } return false; };
+  const runOTD=[], projOTD=[], cumDisp=[];
+  for (let i=0;i<OTD_NW;i++){
+    runOTD[i]  = cumAct[i] > 0 ? (cumAct[i]-cum[i])/cumAct[i] : null;
+    projOTD[i] = totalRoutes > 0 ? (totalRoutes-cum[i])/totalRoutes : null;
+    cumDisp[i] = anyLateUpTo(i) ? String(cum[i]) : "";
+  }
+  let runTotal = null; for (let i=OTD_NW-1;i>=0;i--){ if (cumAct[i]>0){ runTotal=(cumAct[i]-cum[i])/cumAct[i]; break; } }
+  const projTotal = totalRoutes > 0 ? (totalRoutes-cum[OTD_NW-1])/totalRoutes : null;
+  const cumTotal = anyLateUpTo(OTD_NW-1) ? String(cum[OTD_NW-1]) : "";
+  return { rowTotals, totalRoutes, runOTD, projOTD, cumDisp, runTotal, projTotal, cumTotal };
+}
+function otdPctClass(v){
+  if (v === null || v === undefined) return "";
+  if (v >= 0.98) return "bg-emerald-500/15 text-emerald-300";
+  if (v >= 0.95) return "bg-amber-500/15 text-amber-300";
+  return "bg-red-500/15 text-red-300";
+}
+
+function OTDTracker({ onBack }){
+  const [dateStr, setDateStr] = React.useState(otdTodayISO());
+  const [data, setData] = React.useState(otdFresh());
+  const [status, setStatus] = React.useState({ kind:"", text:"Connecting…" });
+  const pendingRef = React.useRef(new Set());
+  const editingRef = React.useRef(null);
+  const timersRef = React.useRef({});
+  const loadTokenRef = React.useRef(0);
+
+  const apiGet = async (date) => {
+    const r = await fetch("/api/state?date=" + encodeURIComponent(date), { cache:"no-store" });
+    if (!r.ok) throw new Error("GET " + r.status);
+    return r.json();
+  };
+  const apiPost = async (payload) => {
+    const r = await fetch("/api/state", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
+    if (!r.ok){ let m="POST "+r.status; try{ m=(await r.json()).error||m; }catch(e){} throw new Error(m); }
+    return r.json();
+  };
+
+  // merge server data into local, without stomping cells being edited or mid-save
+  const mergeServer = (prev, server) => {
+    const stations = prev.stations.slice();
+    if (server.stations){ for (const i in server.stations) stations[+i] = server.stations[i]; }
+    const cells = {};
+    OTD_ROWS.forEach(r => { cells[r.key] = prev.cells[r.key].slice(); });
+    if (server.cells){
+      for (const f in server.cells){
+        const parts = f.split(":"); const row = OTD_ROWS[+parts[0]]; if (!row) continue;
+        const c = +parts[1], k = row.key + ":" + c;
+        if (pendingRef.current.has(k) || editingRef.current === k) continue;
+        cells[row.key][c] = server.cells[f];
+      }
+    }
+    return { stations, cells };
+  };
+
+  // load + poll when date changes
+  React.useEffect(() => {
+    const token = ++loadTokenRef.current;
+    let timer = null;
+    setData(otdFresh());
+    setStatus({ kind:"", text:"Loading…" });
+    (async () => {
+      try {
+        const s = await apiGet(dateStr);
+        if (token !== loadTokenRef.current) return;
+        setData(prev => mergeServer(prev, s));
+        setStatus({ kind:"live", text:"Live" });
+      } catch (e) { setStatus({ kind:"err", text:"Can't reach server" }); }
+    })();
+    const poll = async () => {
+      try {
+        const s = await apiGet(dateStr);
+        if (token !== loadTokenRef.current) return;
+        setData(prev => mergeServer(prev, s));
+        setStatus({ kind:"live", text:"Live" });
+      } catch (e) { setStatus({ kind:"err", text:"Offline — retrying" }); }
+    };
+    timer = setInterval(poll, OTD_POLL_MS);
+    return () => { if (timer) clearInterval(timer); };
+  }, [dateStr]);
+
+  const queueCell = (key, col, value) => {
+    const k = key + ":" + col;
+    pendingRef.current.add(k);
+    clearTimeout(timersRef.current[k]);
+    timersRef.current[k] = setTimeout(async () => {
+      try { await apiPost({ type:"cell", date:dateStr, row:OTD_ROWIDX[key], col, value }); setStatus({ kind:"live", text:"Saved ✓" }); }
+      catch (e){ setStatus({ kind:"err", text:"Save failed" }); }
+      finally { pendingRef.current.delete(k); }
+    }, 350);
+  };
+  const queueStation = (i, value) => {
+    const k = "station:" + i;
+    clearTimeout(timersRef.current[k]);
+    timersRef.current[k] = setTimeout(async () => {
+      try { await apiPost({ type:"station", date:dateStr, i, value }); setStatus({ kind:"live", text:"Saved ✓" }); }
+      catch (e){ setStatus({ kind:"err", text:"Save failed" }); }
+    }, 350);
+  };
+
+  const setCell = (key, i, value) => {
+    setData(prev => { const cells = { ...prev.cells, [key]: prev.cells[key].slice() }; cells[key][i] = value; return { ...prev, cells }; });
+    queueCell(key, i, value);
+  };
+  const setStation = (i, value) => {
+    setData(prev => { const stations = prev.stations.slice(); stations[i] = value; return { ...prev, stations }; });
+    queueStation(i, value);
+  };
+
+  const resetTimes = () => {
+    setData(prev => {
+      const cells = { ...prev.cells, cpt: prev.cells.cpt.slice(), stageBy: prev.cells.stageBy.slice() };
+      for (let i=0;i<OTD_NW;i++){ cells.cpt[i]=OTD_DEFAULT_CPT[i]||""; cells.stageBy[i]=OTD_DEFAULT_STAGE[i]||""; }
+      return { ...prev, cells };
+    });
+    for (let i=0;i<OTD_NW;i++){ queueCell("cpt", i, OTD_DEFAULT_CPT[i]||""); queueCell("stageBy", i, OTD_DEFAULT_STAGE[i]||""); }
+  };
+  const resetDay = async () => {
+    if (!window.confirm("Clear ALL entries for " + dateStr + " for everyone? This can't be undone.")) return;
+    try { await apiPost({ type:"reset", date:dateStr }); } catch (e){}
+    setData(otdFresh());
+    setDateStr(d => d); // no-op; effect re-runs on remount of interval via state set below
+    // force a reload
+    loadTokenRef.current++;
+    try { const s = await apiGet(dateStr); setData(prev => mergeServer(prev, s)); } catch (e){}
+  };
+
+  const comp = otdCompute(data);
+
+  // shared cell styling helpers
+  const labelCell = "sticky left-0 z-10 bg-slate-900 text-slate-200 text-left font-semibold px-3 whitespace-nowrap border border-slate-700";
+  const totalCell = "bg-slate-800 text-amber-200 font-bold border border-slate-700 text-center";
+  const inputBase = "w-full h-7 bg-transparent text-center text-slate-100 text-xs outline-none focus:bg-white/10";
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white p-4 md:p-6">
+      <div className="max-w-[1250px] mx-auto">
+        {/* Top bar */}
+        <div className="flex items-center flex-wrap gap-3 mb-5">
+          <button onClick={onBack} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Hub
+          </button>
+          <div className="mr-auto">
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <span className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-500/15 border border-emerald-500/30"><LayoutGrid className="w-5 h-5 text-emerald-400" /></span>
+              On-Time Dispatch Tracker
+            </h1>
+            <p className="text-slate-400 text-xs mt-1">Shared board · everyone with the link edits the same waves</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] uppercase tracking-wide text-slate-500">Date</label>
+            <input type="date" value={dateStr} onChange={e => setDateStr(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-100" />
+          </div>
+          <button onClick={resetTimes} className="px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-semibold">Reset times</button>
+          <button onClick={resetDay} className="px-3 py-2 rounded-lg border border-transparent text-slate-500 hover:bg-slate-800 hover:text-slate-200 text-xs font-semibold">Reset day</button>
+          <span className="flex items-center gap-2 text-[11px] text-slate-400 min-w-[92px]">
+            <span className={"w-2 h-2 rounded-full " + (status.kind === "live" ? "bg-emerald-500" : status.kind === "err" ? "bg-red-500" : "bg-slate-500")}></span>
+            {status.text}
+          </span>
+        </div>
+
+        {/* Grid */}
+        <div className="rounded-xl border border-slate-800 overflow-auto bg-slate-900/40">
+          <table className="border-collapse" style={{ minWidth: "1100px", width: "100%", tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "230px" }} />
+              <col style={{ width: "72px" }} />
+              {OTD_WAVE_COLORS.map((_, i) => <col key={i} />)}
+            </colgroup>
+            <thead>
+              {/* Wave numbers */}
+              <tr>
+                <th className={labelCell} style={{ height: "30px" }}></th>
+                <th className="bg-slate-800 border border-slate-700"></th>
+                {OTD_WAVE_COLORS.map((c, i) => (
+                  <th key={i} className="border border-slate-700 text-slate-200 font-bold text-xs"
+                      style={{ background: otdRGBA(c, 0.28) }}>Wave {i+1}</th>
+                ))}
+              </tr>
+              {/* Stations (editable) + TOTAL */}
+              <tr>
+                <th className={labelCell}></th>
+                <th className="bg-slate-800 text-slate-200 font-bold border border-slate-700 text-xs">TOTAL</th>
+                {OTD_WAVE_COLORS.map((c, i) => (
+                  <th key={i} className="border border-slate-700 p-0" style={{ background: otdRGBA(c, 0.9) }}>
+                    <input value={data.stations[i] || ""} onChange={e => setStation(i, e.target.value)}
+                      className="w-full h-7 bg-transparent text-center text-white text-[11px] font-bold outline-none focus:bg-black/20" />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {OTD_ROWS.map(r => (
+                <tr key={r.key}>
+                  <td className={labelCell} style={{ height: "30px" }}>{r.label}</td>
+                  <td className={totalCell}>{comp.rowTotals[r.key]}</td>
+                  {OTD_WAVE_COLORS.map((c, i) => {
+                    const alpha = r.cpt ? 0.30 : 0.13;
+                    return (
+                      <td key={i} className="border border-slate-700 p-0" style={{ background: otdRGBA(c, alpha) }}>
+                        <input
+                          value={data.cells[r.key][i] || ""}
+                          inputMode={r.type === "num" ? "numeric" : "text"}
+                          onFocus={() => { editingRef.current = r.key + ":" + i; }}
+                          onBlur={() => { if (editingRef.current === r.key + ":" + i) editingRef.current = null; }}
+                          onChange={e => setCell(r.key, i, e.target.value)}
+                          className={inputBase + (r.cpt ? " font-bold" : "")}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+
+              {/* spacer */}
+              <tr><td className="h-2 bg-slate-950/60" colSpan={OTD_NW + 2}></td></tr>
+
+              {/* Summary header */}
+              <tr>
+                <td className="bg-emerald-500/15 text-emerald-300 font-bold text-left px-3 border border-slate-700" colSpan={OTD_NW + 2} style={{ height: "28px" }}>SUMMARY TABLE</td>
+              </tr>
+              {/* Total Routes */}
+              <tr>
+                <td className={labelCell + " !bg-slate-800"}>Total Routes</td>
+                <td className={totalCell}>{comp.totalRoutes ? comp.totalRoutes : ""}</td>
+                {OTD_WAVE_COLORS.map((_, i) => <td key={i} className="border border-slate-700 bg-slate-900/60"></td>)}
+              </tr>
+              {/* Cumulative Lates */}
+              <tr>
+                <td className={labelCell + " !bg-slate-800"}>Cumulative Lates:</td>
+                <td className={totalCell}>{comp.cumTotal}</td>
+                {comp.cumDisp.map((v, i) => <td key={i} className="border border-slate-700 bg-slate-900/60 text-slate-200 text-xs font-semibold text-center">{v}</td>)}
+              </tr>
+              {/* Running OTD% */}
+              <tr>
+                <td className={labelCell + " !bg-slate-800"}>Running OTD%:</td>
+                <td className={"border border-slate-700 text-center font-bold text-xs " + otdPctClass(comp.runTotal)}>{comp.runTotal === null ? "" : otdPct(comp.runTotal)}</td>
+                {comp.runOTD.map((v, i) => <td key={i} className={"border border-slate-700 text-center font-bold text-xs " + otdPctClass(v)}>{v === null ? "" : otdPct(v)}</td>)}
+              </tr>
+              {/* Projected OTD% */}
+              <tr>
+                <td className={labelCell + " !bg-slate-800"}>Projected OTD%:</td>
+                <td className={"border border-slate-700 text-center font-bold text-xs " + otdPctClass(comp.projTotal)}>{comp.projTotal === null ? "" : otdPct(comp.projTotal)}</td>
+                {comp.projOTD.map((v, i) => <td key={i} className={"border border-slate-700 text-center font-bold text-xs " + otdPctClass(v)}>{v === null ? "" : otdPct(v)}</td>)}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-slate-500 items-center">
+          <span>Each wave is color-coded by station.</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-500/40 border border-emerald-500"></span> OTD ≥ 98%</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-500/40 border border-amber-500"></span> 95–98%</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500/40 border border-red-500"></span> &lt; 95%</span>
+          <span className="ml-auto">CPT &amp; Stage-by default times are pre-filled and stay unless changed · TOTAL &amp; OTD calculate automatically.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AnalyticsHub() {
   const [currentView, setCurrentView] = useState('hub');
 
@@ -1691,9 +2026,13 @@ export default function AnalyticsHub() {
     return <PivotPlatform config={PLATFORM_CONFIGS.lateDelivery} onBack={() => setCurrentView('hub')} />;
   }
 
+  if (currentView === 'otd') {
+    return <OTDTracker onBack={() => setCurrentView('hub')} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
-      <div className="max-w-4xl w-full">
+      <div className="max-w-6xl w-full">
         {/* Header */}
         <div className="text-center mb-12">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 mb-6 shadow-lg shadow-cyan-500/20">
@@ -1705,7 +2044,7 @@ export default function AnalyticsHub() {
         </div>
 
         {/* Platform Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Concessions Analytics Card */}
           <button
             onClick={() => setCurrentView('concessions')}
@@ -1743,6 +2082,26 @@ export default function AnalyticsHub() {
               <span className="px-3 py-1 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Root Cause</span>
               <span className="px-3 py-1 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Station Analysis</span>
               <span className="px-3 py-1 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Cost Tracking</span>
+            </div>
+          </button>
+
+          {/* OTD Tracker Card */}
+          <button
+            onClick={() => setCurrentView('otd')}
+            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 border border-slate-700 hover:border-emerald-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-emerald-500/10 hover:-translate-y-1"
+          >
+            <div className="flex items-start justify-between mb-6">
+              <div className="w-14 h-14 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+                <LayoutGrid className="w-7 h-7 text-emerald-400" />
+              </div>
+              <ChevronRight className="w-6 h-6 text-slate-600 group-hover:text-emerald-400 transition-colors" />
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2 group-hover:text-emerald-400 transition-colors">OTD Tracker</h2>
+            <p className="text-gray-400 mb-4">Live wave staging board with default cut times, color-coded waves, and automatic OTD% — shared across the team</p>
+            <div className="flex flex-wrap gap-2">
+              <span className="px-3 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Live Grid</span>
+              <span className="px-3 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Auto OTD%</span>
+              <span className="px-3 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Shared</span>
             </div>
           </button>
         </div>
