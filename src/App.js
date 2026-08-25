@@ -2,10 +2,11 @@
   Analytics Hub - Created by Olatunji Eniola
   Combined platform: Concessions Analytics + Late Delivery Deep Dive
 */
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Papa from 'papaparse';
 import _ from 'lodash';
-import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown, LayoutGrid } from 'lucide-react';
+import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown, LayoutGrid, ShieldCheck, Target } from 'lucide-react';
+import { WATCHTOWER_HTML_B64, WWSC_HTML_B64 } from './dashboards';
 
 // ============================================================
 // COACHING TIPS CONFIGS
@@ -1889,8 +1890,8 @@ function OTDTracker({ onBack }){
   const inputBase = "w-full h-7 bg-transparent text-center text-slate-100 text-xs outline-none focus:bg-white/10";
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-4 md:p-6">
-      <div className="max-w-[1250px] mx-auto">
+    <div className="min-h-screen bg-slate-950 text-white p-3 md:p-5">
+      <div className="w-full">
         {/* Top bar */}
         <div className="flex items-center flex-wrap gap-3 mb-5">
           <button onClick={onBack} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
@@ -1918,11 +1919,11 @@ function OTDTracker({ onBack }){
 
         {/* Grid */}
         <div className="rounded-xl border border-slate-800 overflow-auto bg-slate-900/40">
-          <table className="border-collapse" style={{ minWidth: "1100px", width: "100%", tableLayout: "fixed" }}>
+          <table className="border-collapse" style={{ minWidth: "1750px", width: "100%", tableLayout: "fixed" }}>
             <colgroup>
-              <col style={{ width: "230px" }} />
+              <col style={{ width: "240px" }} />
               <col style={{ width: "72px" }} />
-              {OTD_WAVE_COLORS.map((_, i) => <col key={i} />)}
+              {OTD_WAVE_COLORS.map((_, i) => <col key={i} style={{ minWidth: "118px" }} />)}
             </colgroup>
             <thead>
               {/* Wave numbers */}
@@ -2016,6 +2017,39 @@ function OTDTracker({ onBack }){
   );
 }
 
+// ============================================================
+// EMBEDDED HTML DASHBOARD (Watchtower / WWSC) — runs the original
+// standalone HTML verbatim inside an isolated, full-screen iframe.
+// ============================================================
+function decodeHtmlB64(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+}
+
+function HtmlDashboard({ b64, title, onBack }) {
+  const html = useMemo(() => decodeHtmlB64(b64), [b64]);
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-800 bg-slate-950/95 shrink-0">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" /> Hub
+        </button>
+        <span className="text-slate-200 font-semibold text-sm truncate">{title}</span>
+      </div>
+      <iframe
+        title={title}
+        srcDoc={html}
+        className="flex-1 w-full border-0 bg-white"
+      />
+    </div>
+  );
+}
+
 export default function AnalyticsHub() {
   const [currentView, setCurrentView] = useState('hub');
 
@@ -2028,6 +2062,14 @@ export default function AnalyticsHub() {
 
   if (currentView === 'otd') {
     return <OTDTracker onBack={() => setCurrentView('hub')} />;
+  }
+
+  if (currentView === 'watchtower') {
+    return <HtmlDashboard b64={WATCHTOWER_HTML_B64} title="Warehouse Compliance Dashboard" onBack={() => setCurrentView('hub')} />;
+  }
+
+  if (currentView === 'wwsc') {
+    return <HtmlDashboard b64={WWSC_HTML_B64} title="WWSC Scorecard" onBack={() => setCurrentView('hub')} />;
   }
 
   return (
@@ -2044,64 +2086,104 @@ export default function AnalyticsHub() {
         </div>
 
         {/* Platform Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* Concessions Analytics Card */}
           <button
             onClick={() => setCurrentView('concessions')}
-            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 border border-slate-700 hover:border-cyan-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-cyan-500/10 hover:-translate-y-1"
+            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 border border-slate-700 hover:border-cyan-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-cyan-500/10 hover:-translate-y-1"
           >
-            <div className="flex items-start justify-between mb-6">
-              <div className="w-14 h-14 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center group-hover:bg-cyan-500/20 transition-colors">
-                <TrendingDown className="w-7 h-7 text-cyan-400" />
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-11 h-11 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center group-hover:bg-cyan-500/20 transition-colors">
+                <TrendingDown className="w-5 h-5 text-cyan-400" />
               </div>
-              <ChevronRight className="w-6 h-6 text-slate-600 group-hover:text-cyan-400 transition-colors" />
+              <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-cyan-400 transition-colors" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2 group-hover:text-cyan-400 transition-colors">Concessions Analytics</h2>
-            <p className="text-gray-400 mb-4">DNR deep dive with sub-bucket analysis, coaching tips, and hierarchical pivot tables</p>
-            <div className="flex flex-wrap gap-2">
-              <span className="px-3 py-1 bg-cyan-900/30 text-cyan-400 rounded-full text-xs font-medium">Pivot Tables</span>
-              <span className="px-3 py-1 bg-cyan-900/30 text-cyan-400 rounded-full text-xs font-medium">Coaching Tips</span>
-              <span className="px-3 py-1 bg-cyan-900/30 text-cyan-400 rounded-full text-xs font-medium">Manager View</span>
+            <h2 className="text-lg font-bold text-white mb-1.5 group-hover:text-cyan-400 transition-colors">Concessions Analytics</h2>
+            <p className="text-gray-400 text-sm mb-3">DNR deep dive with sub-bucket analysis, coaching tips, and hierarchical pivot tables</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-0.5 bg-cyan-900/30 text-cyan-400 rounded-full text-xs font-medium">Pivot Tables</span>
+              <span className="px-2.5 py-0.5 bg-cyan-900/30 text-cyan-400 rounded-full text-xs font-medium">Coaching Tips</span>
+              <span className="px-2.5 py-0.5 bg-cyan-900/30 text-cyan-400 rounded-full text-xs font-medium">Manager View</span>
             </div>
           </button>
 
           {/* Late Delivery Deep Dive Card */}
           <button
             onClick={() => setCurrentView('lateDelivery')}
-            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 border border-slate-700 hover:border-orange-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-orange-500/10 hover:-translate-y-1"
+            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 border border-slate-700 hover:border-orange-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-orange-500/10 hover:-translate-y-1"
           >
-            <div className="flex items-start justify-between mb-6">
-              <div className="w-14 h-14 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center group-hover:bg-orange-500/20 transition-colors">
-                <Clock className="w-7 h-7 text-orange-400" />
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-11 h-11 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center group-hover:bg-orange-500/20 transition-colors">
+                <Clock className="w-5 h-5 text-orange-400" />
               </div>
-              <ChevronRight className="w-6 h-6 text-slate-600 group-hover:text-orange-400 transition-colors" />
+              <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-orange-400 transition-colors" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2 group-hover:text-orange-400 transition-colors">Late Delivery Deep Dive</h2>
-            <p className="text-gray-400 mb-4">Root cause analysis for late deliveries with L2/L3 bucket breakdown, station analysis, and cost tracking</p>
-            <div className="flex flex-wrap gap-2">
-              <span className="px-3 py-1 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Root Cause</span>
-              <span className="px-3 py-1 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Station Analysis</span>
-              <span className="px-3 py-1 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Cost Tracking</span>
+            <h2 className="text-lg font-bold text-white mb-1.5 group-hover:text-orange-400 transition-colors">Late Delivery Deep Dive</h2>
+            <p className="text-gray-400 text-sm mb-3">Root cause analysis for late deliveries with L2/L3 bucket breakdown, station analysis, and cost tracking</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-0.5 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Root Cause</span>
+              <span className="px-2.5 py-0.5 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Station Analysis</span>
+              <span className="px-2.5 py-0.5 bg-orange-900/30 text-orange-400 rounded-full text-xs font-medium">Cost Tracking</span>
             </div>
           </button>
 
           {/* OTD Tracker Card */}
           <button
             onClick={() => setCurrentView('otd')}
-            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 border border-slate-700 hover:border-emerald-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-emerald-500/10 hover:-translate-y-1"
+            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 border border-slate-700 hover:border-emerald-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-emerald-500/10 hover:-translate-y-1"
           >
-            <div className="flex items-start justify-between mb-6">
-              <div className="w-14 h-14 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
-                <LayoutGrid className="w-7 h-7 text-emerald-400" />
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-11 h-11 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+                <LayoutGrid className="w-5 h-5 text-emerald-400" />
               </div>
-              <ChevronRight className="w-6 h-6 text-slate-600 group-hover:text-emerald-400 transition-colors" />
+              <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-emerald-400 transition-colors" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2 group-hover:text-emerald-400 transition-colors">OTD Tracker</h2>
-            <p className="text-gray-400 mb-4">Live wave staging board with default cut times, color-coded waves, and automatic OTD% — shared across the team</p>
-            <div className="flex flex-wrap gap-2">
-              <span className="px-3 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Live Grid</span>
-              <span className="px-3 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Auto OTD%</span>
-              <span className="px-3 py-1 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Shared</span>
+            <h2 className="text-lg font-bold text-white mb-1.5 group-hover:text-emerald-400 transition-colors">OTD Tracker</h2>
+            <p className="text-gray-400 text-sm mb-3">Live wave staging board with default cut times, color-coded waves, and automatic OTD% — shared across the team</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-0.5 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Live Grid</span>
+              <span className="px-2.5 py-0.5 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Auto OTD%</span>
+              <span className="px-2.5 py-0.5 bg-emerald-900/30 text-emerald-400 rounded-full text-xs font-medium">Shared</span>
+            </div>
+          </button>
+
+          {/* Warehouse Compliance (Watchtower) Card */}
+          <button
+            onClick={() => setCurrentView('watchtower')}
+            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 border border-slate-700 hover:border-violet-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-violet-500/10 hover:-translate-y-1"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-11 h-11 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center group-hover:bg-violet-500/20 transition-colors">
+                <ShieldCheck className="w-5 h-5 text-violet-400" />
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-violet-400 transition-colors" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-1.5 group-hover:text-violet-400 transition-colors">Warehouse Compliance</h2>
+            <p className="text-gray-400 text-sm mb-3">Watchtower compliance dashboard with regional rollups, daily tracking, and threshold scoring</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-0.5 bg-violet-900/30 text-violet-400 rounded-full text-xs font-medium">Compliance</span>
+              <span className="px-2.5 py-0.5 bg-violet-900/30 text-violet-400 rounded-full text-xs font-medium">By Region</span>
+              <span className="px-2.5 py-0.5 bg-violet-900/30 text-violet-400 rounded-full text-xs font-medium">Daily Tracking</span>
+            </div>
+          </button>
+
+          {/* WWSC Scorecard Card */}
+          <button
+            onClick={() => setCurrentView('wwsc')}
+            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 border border-slate-700 hover:border-teal-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-teal-500/10 hover:-translate-y-1"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-11 h-11 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center group-hover:bg-teal-500/20 transition-colors">
+                <Target className="w-5 h-5 text-teal-400" />
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-teal-400 transition-colors" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-1.5 group-hover:text-teal-400 transition-colors">WWSC Scorecard</h2>
+            <p className="text-gray-400 text-sm mb-3">Opportunities scorecard grouped by pillar with performance metrics and trend views</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-0.5 bg-teal-900/30 text-teal-400 rounded-full text-xs font-medium">By Pillar</span>
+              <span className="px-2.5 py-0.5 bg-teal-900/30 text-teal-400 rounded-full text-xs font-medium">Scorecard</span>
+              <span className="px-2.5 py-0.5 bg-teal-900/30 text-teal-400 rounded-full text-xs font-medium">Trends</span>
             </div>
           </button>
         </div>
