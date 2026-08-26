@@ -941,7 +941,7 @@
     if (!BOARD) return;
     setLive('saving');
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => serverSave(blob), 500);
+    saveTimer = setTimeout(() => serverSave(blob), 250);
   }
 
   async function serverSave(blob) {
@@ -1080,7 +1080,7 @@
   }
 
   // ---- Polling: pull in other people's changes ----
-  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 3500); }
+  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 1500); }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
   async function pollServer() {
