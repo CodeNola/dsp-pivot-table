@@ -72,9 +72,23 @@ module.exports = async (req, res) => {
       if (body.type === "state") {
         // Save the whole board blob. Reject anything unreasonably large so a
         // runaway payload can't blow the storage budget (2 MB is generous here).
-        const json = JSON.stringify(body.state ?? {});
+        const incoming = body.state || {};
+        const json = JSON.stringify(incoming);
         if (json.length > 2 * 1024 * 1024) {
           return res.status(413).json({ error: "state too large" });
+        }
+        // Monotonic guard: never let an OLDER save overwrite a NEWER state.
+        // This is what makes a reset stick — the reset writes a "cleared" marker
+        // with the newest _ts, so a stale/in-flight save (older _ts) landing
+        // afterward is ignored instead of resurrecting the board.
+        const existingRaw = await redis.get(key);
+        if (existingRaw) {
+          let existTs = 0;
+          try { existTs = Number(JSON.parse(existingRaw)._ts) || 0; } catch (e) {}
+          const inTs = Number(incoming._ts) || 0;
+          if (inTs < existTs) {
+            return res.status(200).json({ ok: true, ignored: true });
+          }
         }
         await redis.set(key, json);
         return res.status(200).json({ ok: true });

@@ -905,6 +905,17 @@
     };
   }
 
+  // A "cleared" marker written on reset. It has the newest _ts and no pads, so
+  // the monotonic server guard rejects any stale save that lands afterward, and
+  // other computers see a newer empty state and clear themselves.
+  function emptyTombstone() {
+    return {
+      config: {}, waves: [], pads: [], eventLog: [],
+      siteShift: '', dayNotes: '', nextPadId: 1, padColumns: 'auto',
+      _ts: Date.now(), _cleared: true
+    };
+  }
+
   // Append a timestamped entry to the operational log. Safe to call anywhere.
   function logEvent(action, padName, waveIdx, detail) {
     const wnum = (waveIdx !== null && waveIdx !== undefined && waves[waveIdx]) ? waves[waveIdx].num : '';
@@ -1054,6 +1065,7 @@
   // Leave the current board (stop syncing) and return to the gate. No data deleted.
   function switchBoard() {
     stopPolling();
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }  // cancel any queued save
     if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
     if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
     pads = []; waves = []; eventLog = []; config = {}; BOARD = null; serverTs = 0; localTs = 0;
@@ -1090,9 +1102,7 @@
     catch (e) { setLive('offline'); return; }
     setLive('live');
     if (!state) {
-      // The board is gone on the server — someone reset it (or Export & Clear).
-      // If we're currently showing a board, clear ourselves too so the reset
-      // lands on every computer. (On the setup/gate screen there's nothing to do.)
+      // Board fully deleted on the server (Export & Clear). Clear if we're showing one.
       if (pads.length) resetToSetupLocal();
       return;
     }
@@ -1103,6 +1113,13 @@
     const ae = document.activeElement;
     if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT') &&
         ae.closest && ae.closest('#dashboard')) return;
+    // A "cleared" marker (or any empty board) = someone reset it → clear too.
+    if (state._cleared || !state.pads || !state.pads.length) {
+      serverTs = incomingTs;               // remember we've seen this clear
+      localTs = Math.max(localTs, incomingTs);
+      if (pads.length) resetToSetupLocal();
+      return;
+    }
     applyState(state);                     // adopt the newer shared state
   }
 
@@ -1113,8 +1130,17 @@
               '"? This deletes its stored data for everyone on the link.', () => {
       try { exportCSV(); } catch (e) {}
       const board = BOARD;
+      const tomb = emptyTombstone();
       clearState();
-      if (board) serverReset(board);
+      if (board) {
+        // Push a cleared marker first (so other computers clear and stale saves
+        // are blocked), then delete the key to free the storage.
+        fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'state', board: board, state: tomb })
+        }).then(() => serverReset(board)).catch(() => {});
+      }
       switchBoard();
     });
   }
@@ -1249,6 +1275,7 @@
   // Shared by the Reset button and by the poll loop when it detects the board
   // was reset on another computer, so every client lands in the same place.
   function resetToSetupLocal() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }  // cancel any queued save
     if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
     if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
     waves.forEach(w => { delete w.locked; delete w.loadingStartedAt; delete w.loadingStartedClock; delete w.completedAt; delete w.completedClock; });
@@ -1274,10 +1301,20 @@
     // contexts, which was making this link appear to do nothing).
     uiConfirm('Reset the entire pad? This clears it on EVERY computer on this board.', () => {
       const board = BOARD;
+      const tomb = emptyTombstone();
+      // Bump our own clocks to the tombstone so we won't re-adopt anything older.
+      serverTs = tomb._ts; localTs = tomb._ts;
       resetToSetupLocal();
-      // Wipe the shared board so every other computer resets too (their poll
-      // sees the board is gone and clears itself).
-      if (board) serverReset(board);
+      // Write the cleared marker (newest _ts). The server's monotonic guard then
+      // rejects any stale/in-flight save, so the board can't come back. Other
+      // computers see this newer empty state on their next poll and clear too.
+      if (board) {
+        fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'state', board: board, state: tomb })
+        }).catch(() => {});
+      }
     });
   }
 
