@@ -941,7 +941,7 @@
     if (!BOARD) return;
     setLive('saving');
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => serverSave(blob), 250);
+    saveTimer = setTimeout(() => serverSave(blob), 500);
   }
 
   async function serverSave(blob) {
@@ -1080,7 +1080,7 @@
   }
 
   // ---- Polling: pull in other people's changes ----
-  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 1500); }
+  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 3500); }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
   async function pollServer() {
@@ -1089,7 +1089,13 @@
     try { state = await serverLoad(BOARD); }
     catch (e) { setLive('offline'); return; }
     setLive('live');
-    if (!state) return;                    // board cleared elsewhere → keep ours
+    if (!state) {
+      // The board is gone on the server — someone reset it (or Export & Clear).
+      // If we're currently showing a board, clear ourselves too so the reset
+      // lands on every computer. (On the setup/gate screen there's nothing to do.)
+      if (pads.length) resetToSetupLocal();
+      return;
+    }
     const incomingTs = state._ts || 0;
     if (incomingTs <= serverTs) return;    // nothing newer than what we have
     if (incomingTs <= localTs) return;     // our own unsaved edits are newer
@@ -1239,23 +1245,39 @@
     saveState();   // push the new board to the shared server right away
   }
 
+  // Clear THIS screen back to the setup view (no confirm, no server call).
+  // Shared by the Reset button and by the poll loop when it detects the board
+  // was reset on another computer, so every client lands in the same place.
+  function resetToSetupLocal() {
+    if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
+    if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
+    waves.forEach(w => { delete w.locked; delete w.loadingStartedAt; delete w.loadingStartedClock; delete w.completedAt; delete w.completedClock; });
+    eventLog = [];
+    siteShift = ''; dayNotes = '';
+    { const ssEl = document.getElementById('siteShift'); if (ssEl) ssEl.value = '';
+      const dnEl = document.getElementById('dayNotes'); if (dnEl) dnEl.value = ''; }
+    pads = [];
+    nextPadId = 1;
+    // NOTE: we deliberately DON'T zero serverTs/localTs here. Keeping them means
+    // the computer that hit reset won't re-adopt its own just-deleted board in
+    // the split second before the server delete lands. Remote clients still pick
+    // up the next real board fine, because new boards always have a later _ts.
+    clearState();
+    document.getElementById('dashboard').classList.add('hidden');
+    document.getElementById('setup').classList.remove('hidden');
+    const das = document.getElementById('driverAllocSection');
+    if (das) das.classList.add('hidden');
+  }
+
   function resetPad() {
     // Use the in-page dialog (native confirm() is blocked in some embedded
     // contexts, which was making this link appear to do nothing).
-    uiConfirm('Reset the entire pad? All progress will be lost.', () => {
-      if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
-      if (clockInterval) clearInterval(clockInterval);
-      waves.forEach(w => { delete w.locked; delete w.loadingStartedAt; delete w.loadingStartedClock; delete w.completedAt; delete w.completedClock; });
-      eventLog = [];
-      siteShift = ''; dayNotes = '';
-      { const ssEl = document.getElementById('siteShift'); if (ssEl) ssEl.value = '';
-        const dnEl = document.getElementById('dayNotes'); if (dnEl) dnEl.value = ''; }
-      pads = [];
-      nextPadId = 1;
-      clearState();
-      document.getElementById('dashboard').classList.add('hidden');
-      document.getElementById('setup').classList.remove('hidden');
-      document.getElementById('driverAllocSection').classList.add('hidden');
+    uiConfirm('Reset the entire pad? This clears it on EVERY computer on this board.', () => {
+      const board = BOARD;
+      resetToSetupLocal();
+      // Wipe the shared board so every other computer resets too (their poll
+      // sees the board is gone and clears itself).
+      if (board) serverReset(board);
     });
   }
 
