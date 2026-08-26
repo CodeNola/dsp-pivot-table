@@ -1,0 +1,2602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pad Dispatch Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a; --panel: #131829; --panel-2: #1a2138;
+    --border: #2a3454; --text: #e8ecf5; --muted: #7a8aa8;
+    --accent: #00ff88; --warn: #ffb800; --danger: #ff3860;
+    --blue: #4a9eff; --purple: #b46dff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: 'JetBrains Mono', monospace; min-height: 100vh;
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(74,158,255,0.08), transparent 50%),
+      radial-gradient(circle at 80% 100%, rgba(180,109,255,0.06), transparent 50%);
+  }
+  .container { max-width: 1500px; margin: 0 auto; padding: 20px; }
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 2px solid var(--border); padding-bottom: 14px; margin-bottom: 20px;
+  }
+  .title {
+    font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 3px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .title-dot {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 12px var(--accent); animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .clock { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .pad-info { color: var(--muted); font-size: 13px; letter-spacing: 1px; margin-left: 12px; }
+
+  .setup-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 32px; max-width: 720px; margin: 40px auto;
+  }
+  .setup-card h2 {
+    font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px;
+    margin-bottom: 8px;
+  }
+  .setup-card p { color: var(--muted); margin-bottom: 24px; font-size: 13px; }
+  .form-row { margin-bottom: 18px; }
+  .form-row label {
+    display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  .form-row input, .form-row select {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); padding: 12px 14px; font-family: inherit; font-size: 16px;
+    border-radius: 6px; outline: none; transition: border 0.2s;
+  }
+  .form-row input:focus, .form-row select:focus { border-color: var(--accent); }
+  .help-text { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .btn {
+    background: var(--accent); color: #000; border: none; padding: 14px 24px;
+    font-family: inherit; font-weight: 700; font-size: 14px;
+    text-transform: uppercase; letter-spacing: 1.5px; border-radius: 6px;
+    cursor: pointer; transition: all 0.15s; width: 100%;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,255,136,0.3); }
+  .btn-secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  .btn-warn { background: var(--warn); color: #000; }
+  .btn-warn:hover { box-shadow: 0 4px 12px rgba(255,184,0,0.3); }
+  .btn-small {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 14px; font-family: inherit; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px; border-radius: 4px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn-small:hover { background: var(--blue); border-color: var(--blue); }
+
+  .dashboard-top {
+    display: grid; grid-template-columns: 320px 340px 1fr; gap: 16px; margin-bottom: 20px;
+  }
+  @media (max-width: 1100px) { .dashboard-top { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 700px)  { .dashboard-top { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; position: relative;
+  }
+  .card-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--muted); margin-bottom: 10px;
+  }
+
+  .goal-pct {
+    font-family: 'Bebas Neue', sans-serif; font-size: 72px; line-height: 1;
+    letter-spacing: 1px;
+  }
+  .goal-pct.on-track { color: var(--accent); }
+  .goal-pct.at-risk { color: var(--warn); }
+  .goal-pct.behind { color: var(--danger); }
+  .goal-sub { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .goal-need {
+    margin-top: 12px; padding: 10px 12px; background: var(--panel-2);
+    border-left: 3px solid var(--accent); border-radius: 4px; font-size: 12px;
+  }
+  .goal-need.warn { border-left-color: var(--warn); }
+  .goal-need.danger { border-left-color: var(--danger); }
+  .goal-need strong { color: var(--accent); }
+  .goal-need.warn strong { color: var(--warn); }
+  .goal-need.danger strong { color: var(--danger); }
+
+  /* TIMER - TWO PHASE */
+  .timer-phase-banner {
+    text-align: center; font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px; letter-spacing: 3px; padding: 6px;
+    background: var(--panel-2); border-radius: 4px; margin-bottom: 8px;
+    border: 1px solid var(--border);
+  }
+  .timer-phase-banner.idle { color: var(--muted); }
+  .timer-phase-banner.loading { color: var(--warn); border-color: var(--warn); }
+  .timer-phase-banner.dispatch { color: var(--danger); border-color: var(--danger); animation: blink 1.2s infinite; }
+  .timer-phase-banner.over { color: var(--danger); border-color: var(--danger); background: rgba(255,56,96,0.15); }
+  @keyframes blink { 50% { opacity: 0.55; } }
+
+  .timer-display {
+    font-family: 'Bebas Neue', sans-serif; font-size: 64px; line-height: 1;
+    letter-spacing: 4px; text-align: center; margin: 6px 0;
+    color: var(--blue);
+  }
+  .timer-display.loading { color: var(--warn); }
+  .timer-display.dispatch { color: var(--danger); }
+  .timer-display.over { color: var(--danger); }
+  .timer-sub { text-align: center; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .timer-sub strong { color: var(--text); }
+
+  .timer-controls { display: flex; gap: 8px; margin-top: 10px; }
+  .timer-controls .btn { flex: 1; padding: 10px; font-size: 11px; }
+
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .stat {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px; text-align: center;
+  }
+  .stat-num {
+    font-family: 'Bebas Neue', sans-serif; font-size: 28px; line-height: 1;
+  }
+  .stat-label {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--muted); margin-top: 4px;
+  }
+
+  .pads-section { margin-bottom: 20px; }
+  .pads-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;
+  }
+  @media (max-width: 700px) { .pads-grid { grid-template-columns: 1fr; } }
+
+  .pad {
+    background: var(--panel); border: 2px solid var(--border); border-radius: 12px;
+    padding: 18px;
+  }
+  .pad.dragging {
+    position: fixed; margin: 0; pointer-events: none; z-index: 9999;
+    opacity: 0.92; box-shadow: 0 18px 44px rgba(0,0,0,0.6);
+    transform: scale(1.02); cursor: grabbing;
+    border-color: var(--accent);
+  }
+  .pad.drop-target {
+    outline: 2px dashed var(--accent); outline-offset: 3px;
+  }
+  .pad-drop-indicator {
+    border: 3px dashed var(--accent); border-radius: 12px;
+    background: rgba(122,162,247,0.14);
+    min-height: 120px; align-self: stretch;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent); font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 2px; font-size: 18px;
+  }
+  .pads-grid.is-dragging { outline: 2px dashed var(--border); outline-offset: 6px; border-radius: 12px; }
+  .pad-drag-handle {
+    cursor: grab; user-select: none; touch-action: none;
+    color: var(--muted); font-size: 18px; line-height: 1; padding: 0 6px 0 0;
+    margin-right: 2px;
+  }
+  .pad-drag-handle:hover { color: var(--accent); }
+  .pad-drag-handle:active { cursor: grabbing; }
+  .pad.role-late  { border-top: 4px solid var(--warn); }
+  .pad.role-main  { border-top: 4px solid var(--accent); }
+  .pad.role-stage { border-top: 4px solid var(--blue); }
+  .pad.role-extra { border-top: 4px solid var(--purple); }
+  .pad.role-late  .pad-name { color: var(--warn); }
+  .pad.role-main  .pad-name { color: var(--accent); }
+  .pad.role-stage .pad-name { color: var(--blue); }
+  .pad.role-extra .pad-name { color: var(--purple); }
+
+  .pad-header-controls { display: flex; gap: 6px; align-items: center; }
+  .pad-name-input {
+    background: transparent; border: none; border-bottom: 1px dashed var(--border);
+    color: inherit; font-family: 'Bebas Neue', sans-serif; font-size: 26px;
+    letter-spacing: 2px; width: 130px; outline: none; padding: 0;
+  }
+  .pad-name-input:focus { border-bottom-color: var(--accent); }
+  .pad-role-select {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+    font-family: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    border-radius: 4px; padding: 2px 4px; outline: none; cursor: pointer;
+  }
+  .pad-cap-input {
+    width: 48px; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: inherit; font-size: 12px; text-align: center;
+    border-radius: 4px; padding: 2px; outline: none;
+  }
+  /* Per-pad slot-grid columns control. */
+  .pad-grid-label {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--muted); letter-spacing: 0.5px;
+  }
+  .pad-grid-input {
+    width: 52px; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: inherit; font-size: 12px; text-align: center;
+    border-radius: 4px; padding: 2px 4px; outline: none;
+  }
+  .pad-grid-input:focus { border-color: var(--blue); }
+  .pad-remove {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1;
+    padding: 2px 7px;
+  }
+  .pad-remove:hover { border-color: var(--danger); color: var(--danger); }
+  .add-pad-btn {
+    background: var(--panel); border: 2px dashed var(--border); color: var(--muted);
+    border-radius: 12px; cursor: pointer; font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px; letter-spacing: 2px; transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center; min-height: 120px;
+  }
+  .add-pad-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .pad-header {
+    display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;
+  }
+  .pad-name {
+    font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 2px;
+  }
+  .pad-role {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
+  }
+  .pad-meta {
+    font-size: 12px; color: var(--muted); margin-bottom: 12px;
+    display: flex; justify-content: space-between;
+  }
+  .pad-meta strong { color: var(--text); }
+
+  /* PER-PAD TIMER */
+  .pad-timer {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; margin-bottom: 12px; text-align: center;
+  }
+  .pad-timer-banner {
+    font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 2px;
+    color: var(--muted); margin-bottom: 2px;
+  }
+  .pad-timer-banner.loading { color: var(--warn); }
+  .pad-timer-banner.dispatch { color: var(--danger); animation: blink 1.2s infinite; }
+  .pad-timer-banner.over { color: var(--danger); }
+  .pad-timer-display {
+    font-family: 'Bebas Neue', sans-serif; font-size: 40px; line-height: 1;
+    letter-spacing: 3px; color: var(--blue);
+  }
+  .pad-timer-display.loading { color: var(--warn); }
+  .pad-timer-display.dispatch { color: var(--danger); }
+  .pad-timer-display.over { color: var(--danger); }
+  .pad-timer-sub { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+  .pad-timer-sub strong { color: var(--text); }
+  .pad-timer-btn {
+    margin-top: 8px; width: 100%; background: var(--warn); color: #000; border: none;
+    padding: 9px; font-family: inherit; font-weight: 700; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1.5px; border-radius: 5px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .pad-timer-btn:hover { box-shadow: 0 3px 10px rgba(255,184,0,0.3); }
+  .pad-timer-btn.stop { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+  .pad-timer-btn.stop:hover { border-color: var(--danger); color: var(--danger); box-shadow: none; }
+
+  .slots-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px;
+    margin-bottom: 12px;
+  }
+  .slot {
+    background: var(--panel-2); border: 2px solid var(--border);
+    border-radius: 6px; transition: border-color 0.15s;
+    display: flex; flex-direction: column; gap: 4px; padding: 4px;
+    position: relative; user-select: none;
+  }
+  .slot:hover { border-color: var(--blue); }
+  /* Clickable status strip at the top of each slot cycles the state. */
+  .slot-status {
+    cursor: pointer; text-align: center; border-radius: 4px;
+    font-family: 'Bebas Neue', sans-serif; font-size: 15px; letter-spacing: 1px;
+    padding: 3px 0; color: var(--muted);
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+  .slot.loading .slot-status {
+    background: var(--warn); border-color: var(--warn); color: #000;
+    animation: load-pulse 1.5s infinite;
+  }
+  @keyframes load-pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(255,184,0,0.5); }
+    50% { box-shadow: 0 0 0 6px rgba(255,184,0,0); }
+  }
+  .slot.dispatched .slot-status { background: var(--accent); border-color: var(--accent); color: #000; }
+  .slot.late .slot-status { background: var(--danger); border-color: var(--danger); color: #fff; }
+  /* Route # and stage-location inputs. */
+  .slot-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 4px; padding: 3px 5px;
+    font-family: inherit; font-size: 11px; outline: none;
+  }
+  .slot-input:focus { border-color: var(--blue); }
+  .slot-input::placeholder { color: var(--muted); }
+  .slot-stage { color: var(--blue); font-weight: 500; }
+
+  /* [EDIT:CONFIRM] In-page confirmation dialog (replaces native confirm()). */
+  .confirm-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .confirm-overlay.hidden { display: none; }
+  .confirm-box {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 22px; max-width: 380px; width: 100%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .confirm-message { font-size: 15px; line-height: 1.5; margin-bottom: 18px; }
+  .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+  /* Board name badge + live-sync indicator + Export&Clear button. */
+  .board-badge {
+    display: inline-block; margin-left: 10px; padding: 2px 10px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px;
+    font-size: 13px; letter-spacing: 1px; color: var(--blue); font-weight: 600;
+    vertical-align: middle;
+  }
+  .live-dot { font-size: 12px; color: var(--good); letter-spacing: 0.5px; }
+  .live-dot.stale { color: var(--muted); }
+  .live-dot.offline { color: var(--danger); }
+  .btn-danger-small { border-color: var(--danger) !important; color: var(--danger) !important; }
+  .btn-danger-small:hover { background: var(--danger) !important; color: #fff !important; }
+
+  .pad-actions {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .pad-actions .btn-small { flex: 1; min-width: 70px; }
+
+  .pad-status-line {
+    margin-top: 10px; padding: 10px; background: var(--panel-2); border-radius: 4px;
+    font-size: 12px; color: var(--muted); text-align: center; line-height: 1.5;
+  }
+  .pad-status-line strong { color: var(--text); }
+  .pad-status-line.warn { background: rgba(255,184,0,0.1); border: 1px solid var(--warn); color: var(--warn); }
+  .pad-status-line.danger { background: rgba(255,56,96,0.1); border: 1px solid var(--danger); color: var(--danger); }
+  .pad-status-line.success { background: rgba(0,255,136,0.08); border: 1px solid var(--accent); color: var(--accent); }
+
+  .waves-card { margin-bottom: 20px; }
+  .waves-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 10px; margin-top: 12px;
+  }
+  .wave {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; position: relative;
+  }
+  .wave.staged-pad3 { border-color: var(--blue); }
+  .wave.staged-pad3::after {
+    content: 'P3'; position: absolute; top: 6px; right: 8px;
+    color: var(--blue); font-weight: 700; font-size: 10px;
+  }
+  .wave.staged-pad2 { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,255,136,0.2); }
+  .wave.staged-pad2::after {
+    content: 'P2 LIVE'; position: absolute; top: 6px; right: 8px;
+    color: var(--accent); font-weight: 700; font-size: 10px;
+  }
+  .wave.complete { opacity: 0.6; }
+  .wave.complete::after {
+    content: '✓'; position: absolute; top: 6px; right: 10px;
+    color: var(--accent); font-weight: 700;
+  }
+  .wave-time {
+    font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 2px;
+  }
+  .wave-deadline { color: var(--muted); font-size: 10px; margin-top: 2px; }
+  .wave-routes { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .wave-routes .gap { color: var(--warn); font-weight: 700; }
+  .wave-progress {
+    height: 4px; background: var(--bg); border-radius: 2px; margin-top: 8px; overflow: hidden;
+  }
+  .wave-progress-bar { height: 100%; background: var(--accent); transition: width 0.3s; }
+  .wave-count {
+    margin-top: 6px; font-size: 11px; display: flex; justify-content: space-between;
+  }
+
+  .alert {
+    padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 10px; font-size: 13px;
+  }
+  .alert.action {
+    background: rgba(255,184,0,0.1); border: 1px solid var(--warn); color: var(--warn);
+  }
+  .alert.danger {
+    background: rgba(255,56,96,0.1); border: 1px solid var(--danger); color: var(--danger);
+  }
+  .alert-icon { font-size: 18px; }
+
+  .driver-alloc {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; margin-bottom: 18px;
+  }
+  .driver-alloc-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+  }
+  .driver-row {
+    display: grid; grid-template-columns: 1fr 80px 80px; gap: 10px;
+    align-items: center; margin-bottom: 8px;
+  }
+  .driver-row-header {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
+  }
+  .driver-row input {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; font-family: inherit; font-size: 14px; border-radius: 4px;
+    text-align: center; width: 100%;
+  }
+  .driver-row span { font-size: 13px; }
+  .driver-totals {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; font-size: 13px;
+  }
+  .driver-totals strong { color: var(--accent); }
+
+  .legend {
+    display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 10px;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-box {
+    width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--border);
+  }
+
+  .reset-link {
+    color: var(--muted); text-decoration: underline; cursor: pointer;
+    font-size: 11px;
+  }
+  .reset-link:hover { color: var(--danger); }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- BOARD GATE: choose which shared board to open. Everyone who opens the same
+       board name shares the same live board; a different name is a separate board
+       (so different stations don't collide). -->
+  <div id="boardGate" class="setup-card" style="max-width:440px;">
+    <h2>◆ Open a Board</h2>
+    <p>Enter your station / board name (e.g. a 3-letter station code and a number like <strong>PNP1</strong>). Everyone who opens this same name shares the same live board.</p>
+    <div class="form-row">
+      <label>Board name</label>
+      <input type="text" id="boardName" placeholder="e.g. PNP1" maxlength="40"
+             autocomplete="off" onkeydown="if(event.key==='Enter')openBoard()">
+    </div>
+    <div id="boardGateMsg" style="min-height:18px; font-size:13px; color:var(--muted); margin:4px 0 10px;"></div>
+    <button class="btn" onclick="openBoard()">Open Board →</button>
+  </div>
+
+  <!-- SETUP -->
+  <div id="setup" class="setup-card hidden">
+    <h2>◆ Configure Pad</h2>
+    <p>Each wave runs 15 min by default: 10 min loading + 5 min to clear gate (both editable below). Wave time = deadline. Each pad counts down to its wave's deadline from when you press Start Loading.</p>
+
+    <div class="form-row">
+      <label>Total Routes</label>
+      <input type="number" id="totalRoutes" value="111" min="1" max="500">
+    </div>
+    <div class="form-row">
+      <label>Routes Per Wave (default — editable per wave/pad)</label>
+      <input type="number" id="routesPerWave" value="20" min="1" max="60">
+    </div>
+    <!-- [EDIT:DEFAULT-SETUP] Default route type for every pad's route fields.
+         Works like the "STG." stage prefix: pick the type here at setup and each
+         slot's Route # field auto-starts with it, so you only type the number.
+         The <option>s are generated from ROUTE_TYPES. -->
+    <div class="form-row">
+      <label>Route Type (auto-fills each route, e.g. CX134)</label>
+      <select id="routeType"></select>
+    </div>
+    <div class="form-row">
+      <label>First Wave Deadline</label>
+      <input type="time" id="firstWaveTime" value="06:30">
+      <div class="help-text">Time drivers must be GONE by. (6:15 release + 15 min cycle = 6:30 deadline.)</div>
+    </div>
+    <div class="form-row">
+      <label>Wave Interval (minutes)</label>
+      <input type="number" id="waveInterval" value="15" min="5" max="60">
+    </div>
+    <div class="form-row">
+      <label>Goal % On-Time</label>
+      <input type="number" id="goalPct" value="90" min="50" max="100">
+    </div>
+    <div class="form-row">
+      <label>Load Time → Dispatch Window (min)</label>
+      <div style="display:flex;gap:10px;">
+        <input type="number" id="loadTime" value="10" min="1" max="30">
+        <input type="number" id="dispatchTime" value="5" min="1" max="30">
+      </div>
+    </div>
+    <button class="btn btn-secondary" onclick="generateWaves()">▼ Generate Wave Schedule</button>
+
+    <div id="driverAllocSection" class="hidden" style="margin-top: 20px;">
+      <div class="driver-alloc">
+        <div class="driver-alloc-header">
+          <div style="font-size:13px;font-weight:600;">Drivers per wave</div>
+          <button class="btn-small" onclick="autoFillDrivers()">Match routes</button>
+        </div>
+        <div class="driver-row driver-row-header">
+          <span>Wave / Deadline</span>
+          <span>Routes</span>
+          <span>Drivers</span>
+        </div>
+        <div id="driverRows"></div>
+        <div class="driver-totals">
+          <span>Drivers: <strong id="driverTotal">0</strong></span>
+          <span>Routes: <strong id="routeTotal">0</strong></span>
+        </div>
+      </div>
+      <button class="btn" onclick="startPad()">▶ Start Pad</button>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="hidden">
+    <div class="header">
+      <div class="title">
+        <span class="title-dot"></span>
+        PAD DISPATCH
+        <span class="board-badge" id="boardBadge" title="Shared board — everyone with this name sees the same live board"></span>
+        <span class="pad-info" id="padInfo"></span>
+      </div>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <span class="live-dot" id="liveDot" title="Live — syncing with everyone on this board">● Live</span>
+        <button class="btn-small" onclick="switchBoard()" title="Switch to a different board">⇄ Switch</button>
+        <button class="btn-small" onclick="exportCSV()" title="Download a CSV of the current day">⬇ Export CSV</button>
+        <button class="btn-small btn-danger-small" onclick="exportAndClear()" title="Download the CSV, then wipe this board's stored data">⬇ Export &amp; Clear</button>
+        <div class="clock" id="clock">--:--:--</div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+      <input id="siteShift" placeholder="Site / Shift / Your name" oninput="updateSessionMeta()"
+        style="flex:1; min-width:150px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-family:inherit; font-size:14px;" />
+    </div>
+
+    <div id="alertBanner"></div>
+
+    <div class="dashboard-top">
+      <!-- GOAL -->
+      <div class="card">
+        <div class="card-label">▼ On-Time Performance</div>
+        <div class="goal-pct" id="goalPctDisplay">0%</div>
+        <div class="goal-sub" id="goalSub">0 of 0 dispatched on time</div>
+        <div class="goal-need" id="goalNeed">Awaiting first dispatch...</div>
+      </div>
+
+      <!-- WAVE DEADLINE SUMMARY (per-pad timers now live on each pad card) -->
+      <div class="card">
+        <div class="card-label">▼ Next Cutoff</div>
+        <div class="timer-phase-banner idle" id="summaryBanner">READY</div>
+        <div class="timer-display" id="summaryDisplay">--:--</div>
+        <div class="timer-sub" id="summarySub">Each pad has its own <strong>START LOADING</strong> button & timer below</div>
+      </div>
+
+      <!-- STATS -->
+      <div class="card">
+        <div class="card-label">▼ Day Stats</div>
+        <div class="stats-grid">
+          <div class="stat"><div class="stat-num" style="color:var(--blue)" id="statTotal">0</div><div class="stat-label">Total</div></div>
+          <div class="stat"><div class="stat-num" style="color:var(--accent)" id="statOnTime">0</div><div class="stat-label">On Time</div></div>
+          <div class="stat"><div class="stat-num" style="color:var(--warn)" id="statLate">0</div><div class="stat-label">Late</div></div>
+          <div class="stat"><div class="stat-num" style="color:var(--purple)" id="statRemaining">0</div><div class="stat-label">Left</div></div>
+          <div class="stat"><div class="stat-num" style="color:var(--purple)" id="statShort">0</div><div class="stat-label">Short</div></div>
+          <div class="stat"><div class="stat-num" id="statBuffer">0</div><div class="stat-label">Buffer</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 PADS -->
+    <div class="pads-section">
+      <div class="card-label" style="padding-left:4px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <span>▼ Pad Layout
+          <span style="margin-left:14px;text-transform:none;letter-spacing:0;">Drag the ⠿ grip to reorder • Click slot: empty → loading → dispatched → late</span>
+        </span>
+        <span style="text-transform:none; letter-spacing:0;">
+          Columns:
+          <select id="padCols" onchange="setPadColumns(this.value)" class="pad-role-select" style="margin-left:4px;">
+            <option value="auto">Auto</option>
+            <option value="1">1 (stacked)</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </span>
+      </div>
+      <div class="pads-grid" id="padsGrid"></div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-box" style="background:var(--panel-2);"></div>Empty</div>
+        <div class="legend-item"><div class="legend-box" style="background:var(--warn);"></div>Loading</div>
+        <div class="legend-item"><div class="legend-box" style="background:var(--accent);"></div>Dispatched ✓</div>
+        <div class="legend-item"><div class="legend-box" style="background:var(--danger);"></div>Late ✗</div>
+      </div>
+    </div>
+
+    <!-- WAVE STRIP -->
+    <div class="card waves-card">
+      <div class="card-label">▼ Wave Schedule
+        <span class="reset-link" style="margin-left:14px;" onclick="resetPad()">⟲ reset pad</span>
+      </div>
+      <div class="waves-grid" id="wavesGrid"></div>
+    </div>
+  </div>
+
+  <!-- [EDIT:CONFIRM] In-page confirmation dialog. Used by "Remove pad" instead
+       of the browser's native confirm(), which is silently blocked in some
+       embedded/iframe contexts (that was why the ✕ button appeared to do
+       nothing). Hidden until uiConfirm() shows it. -->
+  <div id="confirmOverlay" class="confirm-overlay hidden">
+    <div class="confirm-box">
+      <div class="confirm-message" id="confirmMessage"></div>
+      <div class="confirm-actions">
+        <button class="btn btn-secondary" id="confirmNo">Cancel</button>
+        <button class="btn" id="confirmYes">Remove</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  /* ============================================================================
+     PAD DISPATCH TRACKER — QUICK EDIT GUIDE (Ctrl+F these tags)
+
+       [EDIT:ROUTE-TYPES]   the list of route-type prefixes (CX, AX, ...)
+       [EDIT:STAGE-PREFIX]  the "STG." stage-location prefix
+       [EDIT:COLORS]        the color palette (top of the <style> block, :root)
+       [EDIT:DEFAULT-SETUP] default values shown on the Configure Pad screen
+       [EDIT:CONFIRM]       the in-page confirm dialog used by "Remove pad"
+
+     Notes:
+       • Data is stored on a shared server (Vercel Redis) per board name, so
+         everyone who opens the same board sees the same live board. A local
+         copy is also cached in the browser for instant restore / offline.
+       • Comments are heaviest around the parts you are most likely to edit
+         (route types, slot entry, pad removal, setup). Untouched sections were
+         left exactly as they were so existing behavior stays identical.
+     ============================================================================ */
+
+  // [EDIT:ROUTE-TYPES] Valid route-type prefixes shown in the setup dropdown.
+  // Add/remove/reorder codes here — the setup <select> and the per-slot route
+  // fields both read from this one list, so this is the only place to change.
+  const ROUTE_TYPES = ['CX', 'AX', 'AT', 'RV', 'VT', 'SA', 'SB', 'SV', 'RX', 'RT'];
+
+  // Build the <option> tags for a route-type <select>, marking `selected` the
+  // one that matches `current` (falls back to the first type).
+  function routeTypeOptions(current) {
+    const sel = ROUTE_TYPES.includes(current) ? current : ROUTE_TYPES[0];
+    return ROUTE_TYPES
+      .map(t => `<option value="${t}" ${t === sel ? 'selected' : ''}>${t}</option>`)
+      .join('');
+  }
+
+  let config = {};
+  let waves = [];
+  // Pads are now a dynamic array. Each pad: { id, name, role, capacity, waveIdx, slots }
+  // role: 'late' (overflow/stragglers), 'main' (current load), 'stage' (next wave), 'extra'
+  let pads = [];
+  let eventLog = [];   // chronological operational log: start/stop loading, dispatch, wave done (persisted)
+  let siteShift = '';  // optional label: site / shift / operator name (persisted, shown in export)
+  let dayNotes = '';   // optional freeform notes for the day (persisted, shown in export)
+  let nextPadId = 1;
+  let padColumns = 'auto';   // 'auto' | '1' | '2' | '3' | '4'
+
+  function setPadColumns(val) {
+    padColumns = val;
+    applyPadColumns();
+    saveState();
+  }
+
+  function applyPadColumns() {
+    const grid = document.getElementById('padsGrid');
+    if (!grid) return;
+    if (padColumns === 'auto') {
+      grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(300px, 1fr))';
+    } else {
+      grid.style.gridTemplateColumns = `repeat(${padColumns}, 1fr)`;
+    }
+    const sel = document.getElementById('padCols');
+    if (sel) sel.value = padColumns;
+  }
+
+  function defaultCapacity() {
+    return (config && config.routesPerWave) ? config.routesPerWave : 20;
+  }
+
+  function makePad(name, role, capacity, waveIdx) {
+    // The pad inherits the route type chosen at setup (e.g. "CX"). Each of its
+    // route fields starts pre-filled with this prefix, so the operator only
+    // types the number — mirroring how the stage field starts with "STG.".
+    const rt = (config && config.routeType) || ROUTE_TYPES[0];
+    return {
+      id: nextPadId++,
+      name: name,
+      role: role,
+      capacity: capacity,
+      waveIdx: (waveIdx === undefined ? null : waveIdx),
+      feedsInto: null,   // id of the pad this one feeds when that pad finishes a wave; null = independent
+      timerStartedAt: null,  // ms timestamp when "Start Loading" was pressed on THIS pad; null = not started
+      routeType: rt,                          // route-type prefix for this pad's route fields
+      slotCols: 'auto',                       // slot-grid columns: 'auto' (responsive) or a number
+      slots: Array(capacity).fill('empty'),   // status per slot: empty / loading / dispatched / late
+      routes: Array(capacity).fill(rt),       // route number per slot (starts with the route-type prefix)
+      stages: Array(capacity).fill('STG.')    // stage location per slot (auto-prefixed with STG.)
+    };
+  }
+
+  function getPad(id) { return pads.find(p => p.id === id); }
+
+  // ---- Slot route/stage helpers -------------------------------------------
+  // Make sure a pad has a routeType plus routes[] and stages[] arrays sized to
+  // its capacity. (Backfills pads created before these fields existed and keeps
+  // the arrays the same length as the slot count.)
+  function ensureSlotArrays(pad) {
+    // Backfill the route type for older saves.
+    if (!pad.routeType) pad.routeType = (config && config.routeType) || ROUTE_TYPES[0];
+    // Backfill the slot-grid column setting for older saves.
+    if (pad.slotCols == null) pad.slotCols = 'auto';
+    if (!Array.isArray(pad.routes)) pad.routes = [];
+    if (!Array.isArray(pad.stages)) pad.stages = [];
+    for (let i = 0; i < pad.capacity; i++) {
+      // Empty route fields start with the pad's route-type prefix; empty stage
+      // fields start with "STG.".
+      if (pad.routes[i] == null) pad.routes[i] = pad.routeType;
+      if (pad.stages[i] == null) pad.stages[i] = 'STG.';
+    }
+    pad.routes.length = pad.capacity;   // trim if capacity shrank
+    pad.stages.length = pad.capacity;
+  }
+
+  // Fully clear a pad: empty every slot AND reset its route/stage text back to
+  // the bare prefixes, so no old driver's route/stage lingers after a wave.
+  function resetPadEntries(pad) {
+    const rt = pad.routeType || ROUTE_TYPES[0];
+    pad.slots  = Array(pad.capacity).fill('empty');
+    pad.routes = Array(pad.capacity).fill(rt);
+    pad.stages = Array(pad.capacity).fill('STG.');
+  }
+
+  // Label shown on the clickable status strip for each slot state.
+  function slotStatusLabel(state, i) {
+    if (state === 'loading') return 'LOAD';       // amber — currently loading
+    if (state === 'dispatched') return '✓';       // green — out on time
+    if (state === 'late') return '✗';             // red — out late
+    return '#' + (i + 1);                          // grey — empty (shows slot number)
+  }
+
+  // [EDIT:STAGE-PREFIX] Force the stage value to always begin with "STG." — the
+  // user only types whatever it's staged at. Keeps the suffix, normalizes the
+  // prefix (so "stg.", "STG", or a bare number all become "STG.<suffix>").
+  function normalizeStage(v) {
+    if (v == null) return 'STG.';
+    const suffix = v.replace(/^\s*stg\.?\s*/i, '');
+    return 'STG.' + suffix;
+  }
+
+  // Force the route value to always begin with the pad's route-type prefix
+  // (CX, AX, ...). Strips any leading known route-type code the field may
+  // already contain, then re-asserts THIS pad's type — so the whole pad stays
+  // on one route type and the operator only types the number.
+  function normalizeRoute(v, type) {
+    const t = ROUTE_TYPES.includes(type) ? type : ROUTE_TYPES[0];
+    if (v == null || v === '') return t;
+    // Remove a leading route-type code (case-insensitive) if one is present.
+    const re = new RegExp('^\\s*(' + ROUTE_TYPES.join('|') + ')\\s*', 'i');
+    const suffix = v.replace(re, '');
+    return t + suffix;
+  }
+
+  function placeCaretEnd(el) {
+    try { const n = el.value.length; el.setSelectionRange(n, n); } catch (e) {}
+  }
+
+  // True once a slot has real check-in info: a route number beyond the bare type
+  // prefix, or a stage location beyond the bare "STG." prefix.
+  function slotHasInfo(pad, i) {
+    const route = (pad.routes[i] || '').trim();
+    const stage = (pad.stages[i] || '').trim();
+    const routeHas = route !== '' && route.toUpperCase() !== (pad.routeType || '').toUpperCase();
+    const stageHas = stage !== '' && stage.toUpperCase() !== 'STG.';
+    return routeHas || stageHas;
+  }
+
+  // Auto-occupy a slot when the check-in person fills in its route/stage, so the
+  // pad operator sees the spot is taken WITHOUT clicking. empty → loading when
+  // info is added; loading → empty when both fields are cleared back to bare
+  // prefixes. Never touches dispatched/late (Dispatch All owns those).
+  // Returns true if the status changed.
+  function autoFillSlot(pad, i) {
+    const has = slotHasInfo(pad, i);
+    const st = pad.slots[i];
+    if (has && st === 'empty')   { pad.slots[i] = 'loading'; return true; }
+    if (!has && st === 'loading'){ pad.slots[i] = 'empty';   return true; }
+    return false;
+  }
+
+  // Update a pad card's "filled" counters in place (meta count + staging banner)
+  // without rebuilding the card, so typing/focus is never interrupted.
+  function updatePadFillDisplays(pad, card) {
+    const filled = pad.slots.filter(s => s !== 'empty').length;
+    const fc = card.querySelector('.pad-filled-count');
+    if (fc) fc.textContent = filled;
+    const stg = card.querySelector('.pad-timer.staging');
+    if (stg) {
+      const need = parseInt(stg.dataset.need || '0', 10);
+      const disp = stg.querySelector('.pad-timer-display');
+      if (disp) disp.textContent = `${filled} / ${need}`;
+      const subStrong = stg.querySelector('.pad-timer-sub strong');
+      if (subStrong) subStrong.textContent = filled;
+    }
+  }
+  function mainPad()  { return pads.find(p => p.role === 'main'); }
+  function stagePad() { return pads.find(p => p.role === 'stage'); }
+  // The pad (if any) that feeds a given target pad. Used when the target finishes a wave.
+  function feederOf(targetId) { return pads.find(p => p.feedsInto === targetId); }
+  // A feeder pad stages the wave ONE AHEAD of the pad it feeds. Keep it parked
+  // there automatically (e.g. if Pad 2 runs W1, the pad feeding it stages W2),
+  // but never clobber drivers already loaded on the feeder.
+  function syncFeederWave(pad) {
+    if (!pad || pad.feedsInto === null) return;
+    const target = getPad(pad.feedsInto);
+    if (!target || target.waveIdx === null) return;
+    if (pad.slots.some(s => s !== 'empty')) return; // don't lose staged drivers
+    const ahead = target.waveIdx + 1;
+    pad.waveIdx = (ahead < waves.length) ? ahead : null;
+  }
+
+  function setPadFeed(padId, val) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    const fid = (val === '' || val === 'none') ? null : parseInt(val);
+    // Prevent a pad feeding itself or creating a direct A->B->A loop.
+    if (fid === pad.id) { pad.feedsInto = null; }
+    else {
+      const target = getPad(fid);
+      if (target && target.feedsInto === pad.id) {
+        alert(`${target.name} already feeds ${pad.name}. Can't link both ways.`);
+        renderEverything();
+        return;
+      }
+      pad.feedsInto = fid;
+      // Newly feeding a pad → auto-stage one wave ahead of it.
+      syncFeederWave(pad);
+    }
+    renderEverything();
+  }
+
+  let clockInterval = null;
+
+  // ========= PERSISTENCE =========
+  // ===================== SHARED BOARD STORAGE (Vercel Redis) =====================
+  // Each board is one JSON blob at /api/flex, keyed by the board NAME the user
+  // opens. Everyone who opens the same name shares the same live board; a
+  // different name is a separate board (so different stations never collide).
+  // We also keep a local cache for instant restore and offline safety, but the
+  // server is the shared source of truth.
+  const API_URL = '/api/flex';
+  const LOCAL_PREFIX = 'flexBoard_v2:';   // localStorage cache key prefix, per board
+  let BOARD = null;                        // current board name (null until opened)
+  let localTs = 0;                         // timestamp of our newest local change
+  let serverTs = 0;                        // newest timestamp we've adopted/saved
+  let saveTimer = null;                    // debounce handle for server pushes
+  let pollTimer = null;                    // polling interval handle
+
+  function localKey() { return LOCAL_PREFIX + (BOARD || '_'); }
+
+  // The full state blob representing this board.
+  function buildStateBlob() {
+    return {
+      config: config, waves: waves, pads: pads, eventLog: eventLog,
+      siteShift: siteShift, dayNotes: dayNotes,
+      nextPadId: nextPadId, padColumns: padColumns,
+      _ts: localTs
+    };
+  }
+
+  // Append a timestamped entry to the operational log. Safe to call anywhere.
+  function logEvent(action, padName, waveIdx, detail) {
+    const wnum = (waveIdx !== null && waveIdx !== undefined && waves[waveIdx]) ? waves[waveIdx].num : '';
+    eventLog.push({
+      t: Date.now(),
+      time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+      wave: wnum,
+      pad: padName || '',
+      action: action || '',
+      detail: detail || ''
+    });
+  }
+
+  // Pull the Site/Shift and Notes fields into state and persist them.
+  function updateSessionMeta() {
+    const ss = document.getElementById('siteShift');
+    const dn = document.getElementById('dayNotes');
+    siteShift = ss ? ss.value : siteShift;
+    dayNotes = dn ? dn.value : dayNotes;
+    saveState();
+  }
+
+  function saveState() {
+    // Save the whole board: local cache (instant) + shared server (debounced).
+    if (!pads.length) return;             // nothing to save until a pad exists
+    localTs = Date.now();
+    const blob = buildStateBlob();
+    try { localStorage.setItem(localKey(), JSON.stringify(blob)); } catch (e) {}
+    queueServerSave(blob);
+  }
+
+  // Debounced push to the shared server so fast typing doesn't spam requests.
+  function queueServerSave(blob) {
+    if (!BOARD) return;
+    setLive('saving');
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => serverSave(blob), 500);
+  }
+
+  async function serverSave(blob) {
+    if (!BOARD) return;
+    const payload = blob || buildStateBlob();
+    try {
+      const r = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'state', board: BOARD, state: payload })
+      });
+      if (r.ok) { serverTs = payload._ts || serverTs; setLive('live'); }
+      else setLive('offline');
+    } catch (e) { setLive('offline'); }
+  }
+
+  async function serverLoad(board) {
+    const r = await fetch(API_URL + '?board=' + encodeURIComponent(board));
+    if (!r.ok) throw new Error('load failed');
+    const data = await r.json();
+    return data.state || null;
+  }
+
+  async function serverReset(board) {
+    try {
+      await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'reset', board: board })
+      });
+    } catch (e) {}
+  }
+
+  function clearState() {
+    try { localStorage.removeItem(localKey()); } catch (e) {}
+  }
+
+  // Populate every global from a saved state blob and show the dashboard.
+  // Used both for the initial open and when polling adopts someone else's change.
+  function applyState(state) {
+    if (!state || !state.pads || !state.pads.length) return false;
+    config = state.config || {};
+    waves = state.waves || [];
+    eventLog = state.eventLog || [];
+    siteShift = state.siteShift || '';
+    dayNotes = state.dayNotes || '';
+    { const ssEl = document.getElementById('siteShift'); if (ssEl) ssEl.value = siteShift;
+      const dnEl = document.getElementById('dayNotes'); if (dnEl) dnEl.value = dayNotes; }
+    pads = state.pads;
+    pads.forEach(p => { if (!('feedsInto' in p)) p.feedsInto = null; });
+    pads.forEach(p => ensureSlotArrays(p));
+    nextPadId = state.nextPadId || (Math.max(0, ...pads.map(p => p.id)) + 1);
+    padColumns = state.padColumns || 'auto';
+    pads.forEach(p => syncFeederWave(p));
+    serverTs = state._ts || 0;
+    localTs = Math.max(localTs, serverTs);
+
+    document.getElementById('boardGate').classList.add('hidden');
+    document.getElementById('setup').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+
+    const totalDrivers = waves.reduce((s,w) => s + (w.drivers||0), 0);
+    const totalShort = (config.totalRoutes||0) - totalDrivers;
+    document.getElementById('padInfo').textContent =
+      `${config.totalRoutes} ROUTES • ${totalDrivers} DRIVERS${totalShort > 0 ? ' • ⚠ SHORT '+totalShort : ''} • ${waves.length} WAVES • GOAL ${config.goalPct}%`;
+
+    renderEverything();
+    startClock();
+    pads.forEach(p => { if (!('timerStartedAt' in p)) p.timerStartedAt = null; });
+    if (pads.some(p => p.timerStartedAt)) {
+      ensurePadTimerLoop();
+      pads.forEach(p => { if (p.timerStartedAt) updatePadTimerDisplay(p); });
+    }
+    return true;
+  }
+
+  // ---- Board gate: open / switch boards ----
+  async function openBoard() {
+    const el = document.getElementById('boardName');
+    const raw = (el.value || '').toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    const msg = document.getElementById('boardGateMsg');
+    if (!raw) { if (msg) msg.textContent = 'Enter a board name to continue.'; return; }
+    BOARD = raw;
+    el.value = raw;
+    try { localStorage.setItem('flexLastBoard', BOARD); } catch (e) {}
+    if (msg) msg.textContent = 'Opening ' + raw + '…';
+    updateBoardBadge();
+    setLive('saving');
+
+    let state = null;
+    try {
+      state = await serverLoad(BOARD);
+    } catch (e) {
+      // Server unreachable — fall back to any local cache for this board.
+      try { const c = localStorage.getItem(localKey()); if (c) state = JSON.parse(c); } catch (e2) {}
+      if (!state && msg) { msg.textContent = 'Could not reach the server. Check the connection and try again.'; }
+    }
+    setLive('live');
+
+    if (state && state.pads && state.pads.length) {
+      applyState(state);        // existing board → jump straight to the dashboard
+    } else {
+      // Fresh board → show the setup screen so this person configures it.
+      document.getElementById('boardGate').classList.add('hidden');
+      document.getElementById('setup').classList.remove('hidden');
+    }
+    startPolling();
+  }
+
+  // Leave the current board (stop syncing) and return to the gate. No data deleted.
+  function switchBoard() {
+    stopPolling();
+    if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
+    if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
+    pads = []; waves = []; eventLog = []; config = {}; BOARD = null; serverTs = 0; localTs = 0;
+    document.getElementById('dashboard').classList.add('hidden');
+    document.getElementById('setup').classList.add('hidden');
+    document.getElementById('boardGate').classList.remove('hidden');
+    updateBoardBadge();
+    const msg = document.getElementById('boardGateMsg'); if (msg) msg.textContent = '';
+    const bn = document.getElementById('boardName'); if (bn) { bn.value = ''; bn.focus(); }
+  }
+
+  function updateBoardBadge() {
+    const b = document.getElementById('boardBadge');
+    if (b) b.textContent = BOARD ? ('▦ ' + BOARD) : '';
+  }
+
+  // Live indicator in the header.
+  function setLive(mode) {
+    const el = document.getElementById('liveDot');
+    if (!el) return;
+    if (mode === 'offline') { el.className = 'live-dot offline'; el.textContent = '● Offline'; }
+    else if (mode === 'saving') { el.className = 'live-dot stale'; el.textContent = '● Saving…'; }
+    else { el.className = 'live-dot'; el.textContent = '● Live'; }
+  }
+
+  // ---- Polling: pull in other people's changes ----
+  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 3500); }
+  function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+  async function pollServer() {
+    if (!BOARD) return;
+    let state;
+    try { state = await serverLoad(BOARD); }
+    catch (e) { setLive('offline'); return; }
+    setLive('live');
+    if (!state) return;                    // board cleared elsewhere → keep ours
+    const incomingTs = state._ts || 0;
+    if (incomingTs <= serverTs) return;    // nothing newer than what we have
+    if (incomingTs <= localTs) return;     // our own unsaved edits are newer
+    // Don't yank the view while this person is typing/selecting on the board.
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT') &&
+        ae.closest && ae.closest('#dashboard')) return;
+    applyState(state);                     // adopt the newer shared state
+  }
+
+  // Export the CSV, then wipe THIS board's stored data (local + server). The tool
+  // stays; only the data for this board name is deleted.
+  function exportAndClear() {
+    uiConfirm('Export the CSV and then permanently clear board "' + (BOARD || '') +
+              '"? This deletes its stored data for everyone on the link.', () => {
+      try { exportCSV(); } catch (e) {}
+      const board = BOARD;
+      clearState();
+      if (board) serverReset(board);
+      switchBoard();
+    });
+  }
+
+  // ========= SETUP =========
+  function generateWaves() {
+    const total = parseInt(document.getElementById('totalRoutes').value);
+    const perWave = parseInt(document.getElementById('routesPerWave').value);
+    const firstTime = document.getElementById('firstWaveTime').value;
+    const interval = parseInt(document.getElementById('waveInterval').value);
+
+    // remember the default routes-per-wave so new pads size themselves to it
+    config.routesPerWave = perWave;
+
+    waves = [];
+    let remaining = total;
+    let [hh, mm] = firstTime.split(':').map(Number);
+    let waveNum = 1;
+    while (remaining > 0) {
+      const count = Math.min(perWave, remaining);
+      waves.push({
+        num: waveNum,
+        deadline: `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`,
+        scheduled: count,
+        drivers: count,
+        dispatched: 0,
+        onTime: 0,
+        late: 0
+      });
+      remaining -= count;
+      waveNum++;
+      mm += interval;
+      while (mm >= 60) { mm -= 60; hh++; }
+    }
+    renderDriverRows();
+    document.getElementById('driverAllocSection').classList.remove('hidden');
+  }
+
+  function renderDriverRows() {
+    const rowsDiv = document.getElementById('driverRows');
+    rowsDiv.innerHTML = '';
+    waves.forEach((w, i) => {
+      const releaseTime = computeReleaseTime(w.deadline);
+      const row = document.createElement('div');
+      row.className = 'driver-row';
+      row.innerHTML = `
+        <span>W${w.num} • ${releaseTime} → ${w.deadline}</span>
+        <span style="text-align:center;color:var(--muted);">${w.scheduled}</span>
+        <input type="number" min="0" value="${w.drivers}" onchange="updateDriverCount(${i}, this.value)">
+      `;
+      rowsDiv.appendChild(row);
+    });
+    updateDriverTotals();
+  }
+
+  function updateDriverCount(idx, val) {
+    waves[idx].drivers = parseInt(val) || 0;
+    updateDriverTotals();
+  }
+
+  function autoFillDrivers() {
+    waves.forEach(w => w.drivers = w.scheduled);
+    renderDriverRows();
+  }
+
+  function updateDriverTotals() {
+    const dt = waves.reduce((s,w) => s + w.drivers, 0);
+    const rt = waves.reduce((s,w) => s + w.scheduled, 0);
+    document.getElementById('driverTotal').textContent = dt;
+    document.getElementById('routeTotal').textContent = rt;
+  }
+
+  function computeReleaseTime(deadline) {
+    const load = parseInt(document.getElementById('loadTime').value);
+    const dispatch = parseInt(document.getElementById('dispatchTime').value);
+    let [hh, mm] = deadline.split(':').map(Number);
+    mm -= (load + dispatch);
+    while (mm < 0) { mm += 60; hh--; }
+    return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+  }
+
+  function startPad() {
+    config = {
+      totalRoutes: parseInt(document.getElementById('totalRoutes').value),
+      routesPerWave: parseInt(document.getElementById('routesPerWave').value),
+      goalPct: parseInt(document.getElementById('goalPct').value),
+      loadTime: parseInt(document.getElementById('loadTime').value),
+      dispatchTime: parseInt(document.getElementById('dispatchTime').value),
+      // Chosen route-type prefix (CX, AX, ...). Every pad inherits this as the
+      // auto-fill for its Route # fields. Falls back to the first type if missing.
+      routeType: (document.getElementById('routeType') || {}).value || ROUTE_TYPES[0]
+    };
+
+    eventLog = []; // fresh day — clear any prior log
+    siteShift = ''; dayNotes = '';
+    { const ssEl = document.getElementById('siteShift'); if (ssEl) ssEl.value = '';
+      const dnEl = document.getElementById('dayNotes'); if (dnEl) dnEl.value = ''; }
+    waves.forEach(w => {
+      w.effective = Math.min(w.scheduled, w.drivers);
+      w.shortBy = Math.max(0, w.scheduled - w.drivers);
+      delete w.loadingStartedAt; delete w.loadingStartedClock;
+      delete w.completedAt; delete w.completedClock;
+    });
+
+    // Build the default three-pad layout: three INDEPENDENT main-load pads,
+    // each sized to routes-per-wave and all running the current wave (wave 0).
+    // No feeding between them — each runs its own loading/dispatch timer.
+    const cap = config.routesPerWave;
+    nextPadId = 1;
+    pads = [
+      makePad('PAD 1', 'main', cap, 0),
+      makePad('PAD 2', 'main', cap, 0),
+      makePad('PAD 3', 'main', cap, 0)
+    ];
+    // All independent by default (no hand-off between pads).
+    pads.forEach(p => { p.feedsInto = null; });
+
+    document.getElementById('setup').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+
+    const totalDrivers = waves.reduce((s,w) => s + w.drivers, 0);
+    const totalShort = config.totalRoutes - totalDrivers;
+    document.getElementById('padInfo').textContent =
+      `${config.totalRoutes} ROUTES • ${totalDrivers} DRIVERS${totalShort > 0 ? ' • ⚠ SHORT '+totalShort : ''} • ${waves.length} WAVES • GOAL ${config.goalPct}%`;
+
+    renderEverything();
+    startClock();
+    saveState();   // push the new board to the shared server right away
+  }
+
+  function resetPad() {
+    // Use the in-page dialog (native confirm() is blocked in some embedded
+    // contexts, which was making this link appear to do nothing).
+    uiConfirm('Reset the entire pad? All progress will be lost.', () => {
+      if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
+      if (clockInterval) clearInterval(clockInterval);
+      waves.forEach(w => { delete w.locked; delete w.loadingStartedAt; delete w.loadingStartedClock; delete w.completedAt; delete w.completedClock; });
+      eventLog = [];
+      siteShift = ''; dayNotes = '';
+      { const ssEl = document.getElementById('siteShift'); if (ssEl) ssEl.value = '';
+        const dnEl = document.getElementById('dayNotes'); if (dnEl) dnEl.value = ''; }
+      pads = [];
+      nextPadId = 1;
+      clearState();
+      document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('setup').classList.remove('hidden');
+      document.getElementById('driverAllocSection').classList.add('hidden');
+    });
+  }
+
+  function startClock() {
+    if (clockInterval) clearInterval(clockInterval);   // never stack clocks
+    const tick = () => {
+      const now = new Date();
+      document.getElementById('clock').textContent =
+        now.toLocaleTimeString('en-US', { hour12: false });
+    };
+    tick();
+    clockInterval = setInterval(() => {
+      const now = new Date();
+      document.getElementById('clock').textContent =
+        now.toLocaleTimeString('en-US', { hour12: false });
+      // Only update the live cutoff countdown text — don't rebuild cards,
+      // so open dropdowns and typing aren't interrupted.
+      if (pads.length) { refreshStatusLines(); updateSummaryCutoff(); }
+    }, 1000);
+  }
+
+  // Updates the "Next Cutoff" summary card: shows the soonest upcoming wave deadline
+  // across all pads that hold a wave, and how many pads are actively running a timer.
+  function updateSummaryCutoff() {
+    const disp = document.getElementById('summaryDisplay');
+    const banner = document.getElementById('summaryBanner');
+    const sub = document.getElementById('summarySub');
+    if (!disp || !banner || !sub) return;
+
+    const now = Date.now();
+    let soonest = null, soonestPad = null;
+    pads.forEach(p => {
+      const d = padDeadlineDate(p);
+      if (!d) return;
+      if (soonest === null || d.getTime() < soonest) { soonest = d.getTime(); soonestPad = p; }
+    });
+    const runningCount = pads.filter(p => p.timerStartedAt).length;
+
+    if (soonest === null) {
+      disp.textContent = '--:--'; disp.className = 'timer-display';
+      banner.textContent = 'READY'; banner.className = 'timer-phase-banner idle';
+      sub.innerHTML = `${runningCount} pad${runningCount===1?'':'s'} running`;
+      return;
+    }
+    const secLeft = Math.floor((soonest - now) / 1000);
+    const dl = waves[soonestPad.waveIdx].deadline;
+    if (secLeft <= 0) {
+      const over = -secLeft, m = Math.floor(over/60), s = over%60;
+      disp.textContent = `+${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      disp.className = 'timer-display over';
+      banner.textContent = '⛔ PAST CUTOFF'; banner.className = 'timer-phase-banner over';
+      sub.innerHTML = `${dl} cutoff passed • ${runningCount} pad${runningCount===1?'':'s'} running`;
+    } else {
+      const m = Math.floor(secLeft/60), s = secLeft%60;
+      disp.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      const dispSec = (config.dispatchTime || 5) * 60;
+      disp.className = 'timer-display ' + (secLeft <= dispSec ? 'dispatch' : 'loading');
+      banner.textContent = secLeft <= dispSec ? '🚐 DISPATCH WINDOW' : '◆ NEXT CUTOFF';
+      banner.className = 'timer-phase-banner ' + (secLeft <= dispSec ? 'dispatch' : 'loading');
+      sub.innerHTML = `to ${dl} cutoff • <strong>${runningCount}</strong> pad${runningCount===1?'':'s'} running`;
+    }
+  }
+
+  // ========= PER-PAD TWO-PHASE TIMER (deadline-anchored) =========
+  // Each pad runs its own timer. When "Start Loading" is pressed on a pad, we stamp
+  // pad.timerStartedAt. The countdown is anchored to that pad's WAVE DEADLINE (a fixed
+  // clock time), not to elapsed seconds — so every screen shows the real minutes left
+  // until the wave's hard cutoff, and a refresh stays in sync.
+  //
+  // Phase logic, all measured against the wave deadline (D) on the real clock:
+  //   - Before Start: idle.
+  //   - LOADING phase: from Start until (D - dispatchTime). Counts down to the dispatch handoff.
+  //   - DISPATCH phase: from (D - dispatchTime) until D. "Get them out the gate."
+  //   - PAST DEADLINE: after D.
+  // dispatchTime/loadTime come from config (editable; default 5 / 10).
+
+  let padTimerInterval = null;
+
+  function ensurePadTimerLoop() {
+    // One shared interval refreshes every running pad timer each second.
+    if (padTimerInterval) return;
+    padTimerInterval = setInterval(() => {
+      let anyRunning = false;
+      pads.forEach(p => {
+        if (p.timerStartedAt) {
+          anyRunning = true;
+          updatePadTimerDisplay(p);
+        }
+      });
+      if (!anyRunning) { clearInterval(padTimerInterval); padTimerInterval = null; }
+    }, 250);
+  }
+
+  function padDeadlineDate(pad) {
+    // Returns a Date for this pad's wave deadline today, or null if no wave.
+    if (!pad || pad.waveIdx === null || !waves[pad.waveIdx]) return null;
+    const [dh, dm] = waves[pad.waveIdx].deadline.split(':').map(Number);
+    const d = new Date();
+    d.setHours(dh, dm, 0, 0);
+    return d;
+  }
+
+  function startPadLoading(padId) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    if (pad.waveIdx === null) { alert('This pad has no active wave to load.'); return; }
+    pad.timerStartedAt = Date.now();
+    const sw = waves[pad.waveIdx];
+    if (sw && !sw.loadingStartedAt) {
+      sw.loadingStartedAt = Date.now();
+      sw.loadingStartedClock = new Date().toLocaleTimeString('en-US', { hour12: false });
+    }
+    logEvent('Started loading', pad.name, pad.waveIdx, '');
+    ensurePadTimerLoop();
+    renderPads();      // re-render so the button flips to Stop and the timer shows
+    saveState();
+  }
+
+  function stopPadLoading(padId) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    pad.timerStartedAt = null;
+    logEvent('Stopped loading', pad.name, pad.waveIdx, '');
+    renderPads();
+    saveState();
+  }
+
+  // Compute the current phase + remaining seconds for a pad, anchored to its wave deadline.
+  // Returns null if the timer isn't running or there's no wave.
+  function padTimerState(pad) {
+    if (!pad || !pad.timerStartedAt) return null;
+    const deadline = padDeadlineDate(pad);
+    if (!deadline) return null;
+    const dispSec = (config.dispatchTime || 5) * 60;
+    const now = Date.now();
+    const msToDeadline = deadline.getTime() - now;
+    const secToDeadline = Math.floor(msToDeadline / 1000);
+    const dispatchStartSec = dispSec; // seconds-before-deadline when dispatch phase begins
+
+    if (secToDeadline <= 0) {
+      return { phase: 'over', rem: -secToDeadline };
+    } else if (secToDeadline <= dispatchStartSec) {
+      return { phase: 'dispatch', rem: secToDeadline };
+    } else {
+      // loading phase: time left until dispatch handoff (deadline - dispatchTime)
+      return { phase: 'loading', rem: secToDeadline - dispatchStartSec };
+    }
+  }
+
+  // Update just one pad's timer DOM (display, banner, sub, button) without rebuilding the card.
+  // Optionally pass the card element directly (used during render, before the card is appended).
+  function updatePadTimerDisplay(pad, cardEl) {
+    if (pad.role === 'stage') return; // staging pads show a staging banner, not a timer
+    let card = cardEl;
+    if (!card) {
+      const grid = document.getElementById('padsGrid');
+      if (!grid) return;
+      card = grid.querySelector(`.pad[data-pad-id="${pad.id}"]`);
+    }
+    if (!card) return;
+    const disp = card.querySelector('.pad-timer-display');
+    const banner = card.querySelector('.pad-timer-banner');
+    const sub = card.querySelector('.pad-timer-sub');
+    if (!disp || !banner || !sub) return;
+
+    const st = padTimerState(pad);
+    if (!st) {
+      disp.textContent = '--:--'; disp.className = 'pad-timer-display';
+      banner.textContent = 'READY'; banner.className = 'pad-timer-banner';
+      sub.innerHTML = 'Press <strong>START LOADING</strong> when first driver checks in';
+      return;
+    }
+    const m = Math.floor(st.rem / 60);
+    const s = st.rem % 60;
+    const mmss = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    const dl = waves[pad.waveIdx] ? waves[pad.waveIdx].deadline : '';
+
+    if (st.phase === 'loading') {
+      disp.textContent = mmss; disp.className = 'pad-timer-display loading';
+      banner.textContent = '◆ LOADING'; banner.className = 'pad-timer-banner loading';
+      sub.innerHTML = `<strong>${m}m ${s}s</strong> until dispatch • cutoff ${dl}`;
+    } else if (st.phase === 'dispatch') {
+      disp.textContent = mmss; disp.className = 'pad-timer-display dispatch';
+      banner.textContent = '🚐 DISPATCH NOW'; banner.className = 'pad-timer-banner dispatch';
+      sub.innerHTML = `Get them out — <strong>${m}m ${s}s</strong> to ${dl} cutoff`;
+    } else {
+      disp.textContent = `+${mmss}`; disp.className = 'pad-timer-display over';
+      banner.textContent = '⛔ PAST CUTOFF'; banner.className = 'pad-timer-banner over';
+      sub.innerHTML = `Past ${dl} — anything still loading is <strong>LATE</strong>`;
+    }
+  }
+
+
+  function isPastDeadline(pad) {
+    if (!pad || pad.waveIdx === null) return false;
+    const wave = waves[pad.waveIdx];
+    const now = new Date();
+    const [dh, dm] = wave.deadline.split(':').map(Number);
+    const deadlineDate = new Date(now);
+    deadlineDate.setHours(dh, dm, 0, 0);
+    return now >= deadlineDate;
+  }
+
+  // ========= SLOT INTERACTION =========
+  function cycleSlot(padId, slotIdx) {
+    const pad = getPad(padId);
+    if (!pad || pad.waveIdx === null) return;
+    const current = pad.slots[slotIdx];
+    const past = isPastDeadline(pad);
+
+    if (current === 'empty') {
+      pad.slots[slotIdx] = 'loading';
+    } else if (current === 'loading') {
+      pad.slots[slotIdx] = past ? 'late' : 'dispatched';
+    } else {
+      pad.slots[slotIdx] = 'empty';
+    }
+    renderEverything();
+  }
+
+  function clearPad(padId) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    // In-page dialog (native confirm() is blocked in some embedded contexts).
+    uiConfirm(`Clear ${pad.name}?`, () => {
+      resetPadEntries(pad);   // empty slots and reset route/stage text
+      saveState();
+      renderEverything();
+    });
+  }
+
+  // 'late'/overflow pads: dispatch all loading slots, lock the result into the wave's
+  // totals, clear the pad, and roll forward to the next wave so it's ready for new stragglers.
+  // Other pads: just dispatch their loading slots (Wave Done handles main-pad advancement).
+  function dispatchAll(padId) {
+    const pad = getPad(padId);
+    if (!pad || pad.waveIdx === null) return;
+    const past = isPastDeadline(pad);
+
+    let onTimeCount = 0;
+    let lateCount = 0;
+    for (let i = 0; i < pad.capacity; i++) {
+      if (pad.slots[i] === 'loading') {
+        if (past) { pad.slots[i] = 'late'; lateCount++; }
+        else      { pad.slots[i] = 'dispatched'; onTimeCount++; }
+      } else if (pad.slots[i] === 'dispatched') {
+        onTimeCount++;
+      } else if (pad.slots[i] === 'late') {
+        lateCount++;
+      }
+    }
+
+    logEvent('Dispatch All', pad.name, pad.waveIdx, `${onTimeCount} on time, ${lateCount} late`);
+
+    if (pad.role === 'late') {
+      // Lock these dispatches into the wave totals so they survive when we clear the pad.
+      const wave = waves[pad.waveIdx];
+      const prev = wave.locked || { dispatched: 0, onTime: 0, late: 0 };
+      wave.locked = {
+        dispatched: prev.dispatched + onTimeCount + lateCount,
+        onTime:     prev.onTime + onTimeCount,
+        late:       prev.late + lateCount
+      };
+
+      // Clear the pad (slots + route/stage text) and roll it forward so it's
+      // ready for the next wave's stragglers.
+      resetPadEntries(pad);
+      const nextIdx = pad.waveIdx + 1;
+      pad.waveIdx = (nextIdx < waves.length) ? nextIdx : null;
+    }
+
+    renderEverything();
+  }
+
+  // ========= PAD MANAGEMENT =========
+  function addPad() {
+    const cap = defaultCapacity();
+    const n = pads.length + 1;
+    pads.push(makePad('PAD ' + n, 'extra', cap, null));
+    renderEverything();
+  }
+
+  // Show the in-page confirm dialog. `onConfirm` runs only if the user clicks
+  // the confirm button. We use this instead of the native confirm() because
+  // confirm() is blocked in some embedded/iframe contexts, which made the pad
+  // ✕ button silently do nothing.
+  function uiConfirm(message, onConfirm) {
+    const overlay = document.getElementById('confirmOverlay');
+    const msgEl = document.getElementById('confirmMessage');
+    const yes = document.getElementById('confirmYes');
+    const no  = document.getElementById('confirmNo');
+    if (!overlay || !yes || !no) { // safety net: fall back to native confirm
+      if (confirm(message)) onConfirm();
+      return;
+    }
+    msgEl.textContent = message;
+    overlay.classList.remove('hidden');
+    // Clear any handlers from a previous open, then wire fresh ones.
+    const close = () => { overlay.classList.add('hidden'); yes.onclick = null; no.onclick = null; };
+    yes.onclick = () => { close(); onConfirm(); };
+    no.onclick  = () => { close(); };
+  }
+
+  function removePad(padId) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    // Ask first (in-page dialog), then remove on confirm.
+    uiConfirm(`Remove ${pad.name}? Anything on it will be discarded.`, () => {
+      pads = pads.filter(p => p.id !== padId);
+      // Any pad that fed the removed pad goes back to independent.
+      pads.forEach(p => { if (p.feedsInto === padId) p.feedsInto = null; });
+      saveState();          // persist the removal so it survives a refresh
+      renderEverything();
+    });
+  }
+
+  function renamePad(padId, val) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    pad.name = (val && val.trim()) ? val : pad.name;
+    saveState();
+  }
+
+  // Called when the user finishes editing a name (blur/enter): refresh the rest of the
+  // UI so other pads' "Feeds → [name]" dropdowns and the timer label pick up the new name.
+  function commitPadName(padId, val) {
+    renamePad(padId, val);
+    renderEverything();
+  }
+
+  function setPadRole(padId, role) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    pad.role = role;
+    // "Next Wave Staging" means stage one wave ahead of the pad it feeds.
+    if (role === 'stage') syncFeederWave(pad);
+    renderEverything();
+  }
+
+  // Parse a per-pad grid setting like "4", "4x6", "4 x 6", "5X4".
+  //   • First number  = column count (1..12).
+  //   • Second number = rows (optional). When present, it sets the pad's slot
+  //     count to cols × rows (so "4x6" = 24 squares in a 4-wide grid).
+  //   • When only one number is given, columns change but the slot count stays
+  //     tied to routes-per-wave (the last row can be partial).
+  //   • Blank/"auto" = responsive.
+  function parseGrid(val) {
+    if (val == null) return { cols: 'auto', rows: null };
+    const s = String(val).trim().toLowerCase();
+    if (s === '' || s === 'auto') return { cols: 'auto', rows: null };
+    const nums = s.match(/\d+/g);          // all numbers, in order
+    if (!nums) return { cols: 'auto', rows: null };
+    let cols = parseInt(nums[0], 10);
+    if (isNaN(cols) || cols < 1) return { cols: 'auto', rows: null };
+    if (cols > 12) cols = 12;              // sanity cap on columns
+    let rows = (nums[1] != null) ? parseInt(nums[1], 10) : null;
+    if (rows != null && (isNaN(rows) || rows < 1)) rows = null;
+    if (rows != null && rows > 60) rows = 60;
+    return { cols, rows };
+  }
+
+  // Resize a pad's slot count in place, preserving existing slot data.
+  function resizePadCapacity(pad, cap) {
+    if (isNaN(cap) || cap < 1) cap = 1;
+    if (cap > 60) cap = 60;
+    const old = pad.slots;
+    const next = Array(cap).fill('empty');
+    for (let i = 0; i < Math.min(cap, old.length); i++) next[i] = old[i];
+    pad.capacity = cap;
+    pad.slots = next;
+    ensureSlotArrays(pad);   // keep routes[]/stages[] the same length as slots
+  }
+
+  // Set a pad's grid (per pad). "4x6" sets 4 columns AND 24 squares; "4" just
+  // sets the column count. Re-renders so the change shows.
+  function setPadGrid(padId, val) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    const g = parseGrid(val);
+    pad.slotCols = g.cols;                          // 'auto' or a number
+    if (g.cols !== 'auto' && g.rows != null) {
+      resizePadCapacity(pad, g.cols * g.rows);      // AxB → cols × rows squares
+    }
+    saveState();
+    renderEverything();
+  }
+
+  function setPadCapacity(padId, val) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    resizePadCapacity(pad, parseInt(val));
+    saveState();
+    renderEverything();
+  }
+
+  // Advance a target pad: lock its current wave, then pull in the wave from whatever
+  // pad feeds it (target.feedsInto points the OTHER way, so we look for a pad whose
+  // feedsInto === target.id). The feeder then steps to the next wave in sequence.
+  function advanceWave(targetId) {
+    const target = targetId ? getPad(targetId) : mainPad();
+    if (!target || target.waveIdx === null) return;
+    const feeder = feederOf(target.id);
+
+    // The actual wave advance — runs only after any confirmations are accepted.
+    // newWaveIdx/feederHandsOff are computed once and passed in so the logic and
+    // ordering stay identical to before.
+    const commit = (newWaveIdx, feederHandsOff) => {
+      // New wave = new deadline, so reset this pad's loading timer.
+      target.timerStartedAt = null;
+      recomputeWaveCounts();
+
+      // Lock the target pad's leaving wave totals (merged with any prior locked totals).
+      const leavingWaveIdx = target.waveIdx;
+      if (leavingWaveIdx !== null) {
+        const w = waves[leavingWaveIdx];
+        const prev = w.locked || { dispatched: 0, onTime: 0, late: 0 };
+        let mDisp = 0, mOn = 0, mLate = 0;
+        target.slots.forEach(s => {
+          if (s === 'dispatched') { mDisp++; mOn++; }
+          else if (s === 'late')  { mDisp++; mLate++; }
+        });
+        w.locked = {
+          dispatched: prev.dispatched + mDisp,
+          onTime:     prev.onTime + mOn,
+          late:       prev.late + mLate
+        };
+        w.completedAt = Date.now();
+        w.completedClock = new Date().toLocaleTimeString('en-US', { hour12: false });
+        logEvent('Wave Done', target.name, leavingWaveIdx, `locked ${w.locked.onTime} on time, ${w.locked.late} late`);
+      }
+
+      // Step the target pad to its own next wave.
+      target.waveIdx = newWaveIdx;
+      if (feederHandsOff) {
+        // Carry the feeder's staged drivers — slot state AND their route/stage
+        // text — onto the target pad, then fully clear the feeder.
+        const n = target.capacity;
+        const S = Array(n).fill('empty');
+        const R = Array(n).fill(target.routeType || ROUTE_TYPES[0]);
+        const G = Array(n).fill('STG.');
+        ensureSlotArrays(feeder);
+        for (let i = 0; i < Math.min(n, feeder.capacity); i++) {
+          S[i] = feeder.slots[i];
+          R[i] = feeder.routes[i];
+          G[i] = feeder.stages[i];
+        }
+        target.slots = S; target.routes = R; target.stages = G;
+      } else {
+        // No hand-off: target rolls forward empty (slots + text) so drivers load
+        // directly onto it.
+        resetPadEntries(target);
+      }
+
+      // Keep the feeder one wave ahead so the two pads never sit on the same wave.
+      if (feeder && newWaveIdx !== null && feeder.waveIdx === newWaveIdx) {
+        const feederNext = newWaveIdx + 1;
+        feeder.waveIdx = (feederNext < waves.length) ? feederNext : null;
+        resetPadEntries(feeder);   // staged drivers have moved off — clear it
+      }
+
+      ensureSlotArrays(target);
+      saveState();
+      renderEverything();
+    };
+
+    // Build the "wave done" message, confirm it (in-page), then commit.
+    const confirmAndCommit = () => {
+      // This pad ALWAYS advances to its own next sequential wave. A feeder pad is
+      // optional: if it's staging exactly the next wave AND has drivers ready,
+      // those ride over; otherwise the pad rolls forward empty.
+      const nextIdx = target.waveIdx + 1;
+      const newWaveIdx = (nextIdx < waves.length) ? nextIdx : null;
+
+      // Does the feeder actually have staged drivers for the wave we're entering?
+      const feederHandsOff = !!(
+        feeder &&
+        newWaveIdx !== null &&
+        feeder.waveIdx === newWaveIdx &&
+        feeder.slots.some(s => s !== 'empty')
+      );
+
+      const movingCount = feederHandsOff ? feeder.slots.filter(s => s !== 'empty').length : 0;
+
+      // Clear, count-based wording. "done" = drivers on this pad already marked
+      // dispatched or late (i.e. sent out this wave).
+      const plural = n => (n === 1 ? '' : 's');
+      const doneCount = target.slots.filter(s => s === 'dispatched' || s === 'late').length;
+      const donePart = doneCount > 0
+        ? `${doneCount} driver${plural(doneCount)} on ${target.name} ${doneCount === 1 ? 'is' : 'are'} done`
+        : `${target.name}`;
+      const msg = feederHandsOff
+        ? `${donePart} — move to the next wave (W${waves[newWaveIdx].num}) and bring over ${movingCount} staged driver${plural(movingCount)} from ${feeder.name}?`
+        : (newWaveIdx !== null
+            ? `${donePart} — clear the pad and move to the next wave (W${waves[newWaveIdx].num})?`
+            : `${donePart} — that was the last wave, clear the pad?`);
+      uiConfirm(msg, () => commit(newWaveIdx, feederHandsOff));
+    };
+
+    // If drivers are still loading, confirm marking them late first, then proceed.
+    let stillLoading = 0;
+    for (let i = 0; i < target.capacity; i++) {
+      if (target.slots[i] === 'loading') stillLoading++;
+    }
+    if (stillLoading > 0) {
+      uiConfirm(`${stillLoading} driver(s) on ${target.name} still loading. Mark them late and advance?`, () => {
+        for (let i = 0; i < target.capacity; i++) {
+          if (target.slots[i] === 'loading') target.slots[i] = 'late';
+        }
+        confirmAndCommit();
+      });
+    } else {
+      confirmAndCommit();
+    }
+  }
+
+  // ========= RECOMPUTE WAVE COUNTS =========
+  // For each wave: start from locked totals (committed dispatches), then add
+  // anything still showing on a pad whose waveIdx points at this wave.
+  // Pads only contribute slot counts if the wave isn't fully locked to them —
+  // for waves that have moved past Pad 2, locked totals are the source of truth.
+  function recomputeWaveCounts() {
+    waves.forEach(w => {
+      if (w.locked) {
+        w.dispatched = w.locked.dispatched;
+        w.onTime = w.locked.onTime;
+        w.late = w.locked.late;
+      } else {
+        w.dispatched = 0; w.onTime = 0; w.late = 0;
+      }
+    });
+    // Add live slot counts from every pad currently showing a wave.
+    // (Overflow/'late' pads lock & clear on Dispatch All, so whatever is still on
+    //  them is uncommitted and correctly added on top of locked totals here too.)
+    pads.forEach(pad => {
+      if (pad.waveIdx === null) return;
+      const wave = waves[pad.waveIdx];
+      if (!wave) return;
+      pad.slots.forEach(s => {
+        if (s === 'dispatched') { wave.dispatched++; wave.onTime++; }
+        else if (s === 'late')  { wave.dispatched++; wave.late++; }
+      });
+    });
+  }
+
+  // ========= RENDER =========
+  function renderEverything() {
+    recomputeWaveCounts();
+    renderPads();
+    renderWaves();
+    updateStats();
+    saveState();
+  }
+
+  const ROLE_OPTS = [
+    { val: 'late',  label: 'Late / Overflow' },
+    { val: 'main',  label: 'Main Load' },
+    { val: 'stage', label: 'Next Wave Staging' },
+    { val: 'extra', label: 'Extra / Flex' }
+  ];
+
+  function renderPads() {
+    const grid = document.getElementById('padsGrid');
+    grid.innerHTML = '';
+
+    pads.forEach(pad => {
+      const card = document.createElement('div');
+      card.className = `pad role-${pad.role}`;
+      card.dataset.padId = pad.id;
+
+      const filled = pad.slots.filter(s => s !== 'empty').length;
+      const waveTxt = pad.waveIdx !== null ? `W${waves[pad.waveIdx].num} (${waves[pad.waveIdx].deadline})` : '—';
+
+      // Resulting slot-grid shape shown in the meta line. 'auto' when responsive;
+      // otherwise "cols × rows" where rows are derived from routes-per-wave
+      // (capacity), so e.g. 4 columns for 18 routes shows "4 × 5" (4,4,4,4,2).
+      const gridShapeTxt = (pad.slotCols && pad.slotCols !== 'auto')
+        ? `${pad.slotCols} × ${Math.ceil(pad.capacity / pad.slotCols)}`
+        : 'auto';
+
+      const roleOptionsHtml = ROLE_OPTS.map(o =>
+        `<option value="${o.val}" ${pad.role === o.val ? 'selected' : ''}>${o.label}</option>`
+      ).join('');
+
+      // Staging pads only get Clear — drivers leave a staging pad via the main
+      // pad's Wave Done hand-off, so Dispatch All / Wave Done don't belong here.
+      let actionsHtml = `<button class="btn-small" onclick="clearPad(${pad.id})">Clear</button>`;
+      if (pad.role !== 'stage') {
+        actionsHtml += `<button class="btn-small" onclick="dispatchAll(${pad.id})">Dispatch All</button>`;
+        if (pad.waveIdx !== null) {
+          actionsHtml += `<button class="btn-small" onclick="advanceWave(${pad.id})">Wave Done →</button>`;
+        }
+      }
+
+      // "Feeds into" dropdown: Independent, or feed any OTHER pad.
+      const feedOptions = ['<option value="none"' + (pad.feedsInto === null ? ' selected' : '') + '>Independent</option>']
+        .concat(pads.filter(p => p.id !== pad.id).map(p =>
+          `<option value="${p.id}" ${pad.feedsInto === p.id ? 'selected' : ''}>Feeds → ${p.name.replace(/"/g,'&quot;').replace(/</g,'&lt;')}</option>`
+        )).join('');
+
+      // Per-pad block. Staging pads don't run a loading timer — they pre-stage the
+      // next wave — so instead of Start Loading they show a live "staged / needed"
+      // count that updates as slots are clicked.
+      let timerHtml;
+      if (pad.role === 'stage') {
+        const w = pad.waveIdx !== null ? waves[pad.waveIdx] : null;
+        const need = w ? (w.effective || w.drivers || pad.capacity) : pad.capacity;
+        const waveNum = w ? w.num : '—';
+        const feedTarget = pad.feedsInto !== null ? getPad(pad.feedsInto) : null;
+        const handoff = feedTarget ? `ready to hand to ${feedTarget.name}` : `staged for next wave`;
+        const remainTxt = filled < need ? `${need - filled} more to fill` : `full — ready`;
+        timerHtml = `
+          <div class="pad-timer staging" data-need="${need}">
+            <div class="pad-timer-banner">▦ STAGING • WAVE ${waveNum}</div>
+            <div class="pad-timer-display">${filled} / ${need}</div>
+            <div class="pad-timer-sub"><strong>${filled}</strong> ${handoff} • ${remainTxt}</div>
+          </div>`;
+      } else {
+        const running = !!pad.timerStartedAt;
+        const timerBtn = running
+          ? `<button class="pad-timer-btn stop" onclick="stopPadLoading(${pad.id})">⏹ Stop Timer</button>`
+          : `<button class="pad-timer-btn" onclick="startPadLoading(${pad.id})">▶ Start Loading</button>`;
+        timerHtml = `
+          <div class="pad-timer">
+            <div class="pad-timer-banner">READY</div>
+            <div class="pad-timer-display">--:--</div>
+            <div class="pad-timer-sub">Press <strong>START LOADING</strong> when first driver checks in</div>
+            ${timerBtn}
+          </div>`;
+      }
+
+      card.innerHTML = `
+        <div class="pad-header">
+          <div style="display:flex; align-items:center; flex:1; min-width:0;">
+            <span class="pad-drag-handle" data-drag-handle title="Drag to reorder">⠿</span>
+            <input class="pad-name-input" value="${pad.name.replace(/"/g,'&quot;')}"
+                   placeholder="Type pad name"
+                   oninput="renamePad(${pad.id}, this.value)"
+                   onchange="commitPadName(${pad.id}, this.value)" title="Type to rename this pad">
+          </div>
+          <div class="pad-header-controls">
+            <input class="pad-cap-input" type="number" min="1" max="60" value="${pad.capacity}"
+                   onchange="setPadCapacity(${pad.id}, this.value)" title="Slots on this pad">
+            <button class="pad-remove" onclick="removePad(${pad.id})" title="Remove pad">✕</button>
+          </div>
+        </div>
+        <div style="margin-bottom:10px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+          <select class="pad-role-select" onchange="setPadRole(${pad.id}, this.value)" title="Pad role">${roleOptionsHtml}</select>
+          <select class="pad-role-select" onchange="setPadFeed(${pad.id}, this.value)" title="When the chosen pad finishes a wave, this pad's wave moves into it">${feedOptions}</select>
+          <!-- Per-pad slot-grid. Type "4x6" (columns × rows) to set both the
+               columns and the number of squares, or just "4" to set columns
+               only (squares then follow routes-per-wave). -->
+          <label class="pad-grid-label" title="Slot grid for THIS pad — type 4x6 (columns × rows), or just 4 for columns only">
+            Grid
+            <input class="pad-grid-input"
+                   value="${pad.slotCols === 'auto' ? '' : (pad.slotCols + 'x' + Math.ceil(pad.capacity / pad.slotCols))}"
+                   placeholder="auto (4x6)" onchange="setPadGrid(${pad.id}, this.value)">
+          </label>
+        </div>
+        <div class="pad-meta">
+          <span>Wave: <strong>${waveTxt}</strong></span>
+          <span><strong class="pad-filled-count">${filled}</strong>/${pad.capacity}</span>
+          <span>Grid: <strong>${gridShapeTxt}</strong></span>
+        </div>
+        ${timerHtml}
+        <div class="slots-grid"></div>
+        <div class="pad-actions">${actionsHtml}</div>
+        <div class="pad-status-line"></div>
+      `;
+
+      // Fill in the live timer values for this pad immediately after building the card.
+      updatePadTimerDisplay(pad, card);
+
+      // Build slots. Each slot is a small cell containing:
+      //   1) a clickable status strip (cycles empty → loading → dispatched/late)
+      //   2) a Route # field  (auto-starts with the pad's route type, e.g. "CX")
+      //   3) a Stage field    (auto-starts with "STG.")
+      const slotsDiv = card.querySelector('.slots-grid');
+      ensureSlotArrays(pad);                       // guarantee routeType + arrays exist
+      // Apply this pad's grid columns. 'auto' keeps the responsive CSS layout;
+      // a number forces exactly that many columns. The square COUNT still comes
+      // from routes-per-wave (pad.capacity), so the last row can be partial.
+      if (pad.slotCols && pad.slotCols !== 'auto') {
+        slotsDiv.style.gridTemplateColumns = `repeat(${pad.slotCols}, 1fr)`;
+      } else {
+        slotsDiv.style.gridTemplateColumns = '';   // fall back to CSS default
+      }
+      pad.slots.forEach((state, i) => {
+        // --- the slot cell ---------------------------------------------------
+        const slot = document.createElement('div');
+        slot.className = `slot ${state}`;          // state drives the strip color via CSS
+
+        // --- status strip (click to cycle the slot's state) ------------------
+        const status = document.createElement('div');
+        status.className = 'slot-status';
+        status.textContent = slotStatusLabel(state, i);
+        status.title = 'Click: empty → loading → dispatched / late → empty';
+        status.onclick = () => cycleSlot(pad.id, i);  // cycleSlot re-renders + saves
+
+        // --- Route # field ---------------------------------------------------
+        const routeInput = document.createElement('input');
+        routeInput.className = 'slot-input slot-route';
+        routeInput.placeholder = pad.routeType;       // hint shows the type prefix
+        routeInput.value = pad.routes[i] || pad.routeType;  // starts with the prefix
+        routeInput.onclick = (e) => e.stopPropagation();    // typing must not cycle state
+        // If the operator clicks in and the field is blank, seed the prefix and
+        // drop the caret after it so they can type the number immediately.
+        routeInput.onfocus = (e) => {
+          if (!e.target.value) e.target.value = pad.routeType;
+          placeCaretEnd(e.target);
+        };
+        // On every keystroke: re-assert the pad's route-type prefix, store it,
+        // auto-occupy the slot if it now has info, refresh counts, and save.
+        // We update this one slot's visuals in place (no full re-render) so the
+        // cursor never jumps while typing.
+        routeInput.oninput = (e) => {
+          const v = normalizeRoute(e.target.value, pad.routeType);
+          e.target.value = v;
+          placeCaretEnd(e.target);
+          ensureSlotArrays(pad);
+          pad.routes[i] = v;
+          if (autoFillSlot(pad, i)) {
+            slot.className = `slot ${pad.slots[i]}`;
+            status.textContent = slotStatusLabel(pad.slots[i], i);
+          }
+          updatePadFillDisplays(pad, card);
+          saveState();
+        };
+
+        // --- Stage field (STG. prefix) ---------------------------------------
+        const stageInput = document.createElement('input');
+        stageInput.className = 'slot-input slot-stage';
+        stageInput.placeholder = 'STG.';
+        stageInput.value = pad.stages[i] || 'STG.';   // starts with "STG."
+        stageInput.onclick = (e) => e.stopPropagation();
+        stageInput.onfocus = (e) => {
+          if (!e.target.value) e.target.value = 'STG.';
+          placeCaretEnd(e.target);
+        };
+        stageInput.oninput = (e) => {
+          const v = normalizeStage(e.target.value);   // keep "STG." locked on
+          e.target.value = v;
+          placeCaretEnd(e.target);
+          ensureSlotArrays(pad);
+          pad.stages[i] = v;
+          if (autoFillSlot(pad, i)) {
+            slot.className = `slot ${pad.slots[i]}`;
+            status.textContent = slotStatusLabel(pad.slots[i], i);
+          }
+          updatePadFillDisplays(pad, card);
+          saveState();
+        };
+
+        // --- assemble the cell ----------------------------------------------
+        slot.appendChild(status);
+        slot.appendChild(routeInput);
+        slot.appendChild(stageInput);
+        slotsDiv.appendChild(slot);
+      });
+
+      // Status line
+      const statusEl = card.querySelector('.pad-status-line');
+      applyPadStatus(pad, statusEl);
+
+      // Enable drag-to-reorder via the grip handle.
+      attachPadDrag(card);
+
+      grid.appendChild(card);
+    });
+
+    // Add Pad button
+    const addBtn = document.createElement('div');
+    addBtn.className = 'add-pad-btn';
+    addBtn.textContent = '+ ADD PAD';
+    addBtn.onclick = addPad;
+    grid.appendChild(addBtn);
+
+    applyPadColumns();
+  }
+
+  // Lightweight per-second update: only rewrites the cutoff countdown text in each
+  // pad's status line. It does NOT rebuild the cards, so open dropdowns and in-progress
+  // typing are left untouched.
+  function refreshStatusLines() {
+    const grid = document.getElementById('padsGrid');
+    if (!grid) return;
+    grid.querySelectorAll('.pad').forEach(card => {
+      const pad = getPad(parseInt(card.dataset.padId));
+      if (!pad) return;
+      const el = card.querySelector('.pad-status-line');
+      if (el) applyPadStatus(pad, el);
+    });
+  }
+
+  // ========= DRAG TO REORDER =========
+  // Pointer-based so it works with both mouse and touch. Dragging only starts from the
+  // grip handle, so tapping slots / editing fields is never hijacked.
+  let dragState = null;
+
+  function attachPadDrag(card) {
+    const handle = card.querySelector('[data-drag-handle]');
+    if (!handle) return;
+
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const grid = document.getElementById('padsGrid');
+      const padId = parseInt(card.dataset.padId);
+      const rect = card.getBoundingClientRect();
+
+      dragState = {
+        padId, card, grid,
+        startX: e.clientX, startY: e.clientY,
+        offsetX: e.clientX - rect.left,
+        offsetY: e.clientY - rect.top,
+        width: rect.width, height: rect.height,
+        moved: false, insertId: null, insertEnd: false,
+        placeholder: null
+      };
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+
+      const onMove = (ev) => {
+        if (!dragState) return;
+        if (!dragState.moved) {
+          if (Math.abs(ev.clientX - dragState.startX) > 5 || Math.abs(ev.clientY - dragState.startY) > 5) {
+            beginGhost();
+          } else {
+            return;
+          }
+        }
+        // Move the floating ghost with the pointer.
+        dragState.card.style.left = (ev.clientX - dragState.offsetX) + 'px';
+        dragState.card.style.top  = (ev.clientY - dragState.offsetY) + 'px';
+        computeInsertion(ev.clientX, ev.clientY);
+      };
+
+      const onUp = (ev) => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        if (dragState && dragState.moved) {
+          computeInsertion(ev.clientX, ev.clientY);
+          reorderPadTo(dragState.padId, dragState.insertId, dragState.insertEnd);
+        }
+        cleanupDrag();
+        renderEverything();
+      };
+
+      function beginGhost() {
+        dragState.moved = true;
+        const g = dragState.grid;
+        g.classList.add('is-dragging');
+        // Freeze the current column layout so floating the card (position:fixed, which
+        // removes it from flow) doesn't reflow the grid and shift drop targets mid-drag.
+        const colCount = getComputedStyle(g).gridTemplateColumns.split(' ').length;
+        dragState.prevGridCols = g.style.gridTemplateColumns;
+        g.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
+        // Insert a placeholder where the card currently sits, then float the card.
+        const ph = document.createElement('div');
+        ph.className = 'pad-drop-indicator';
+        ph.textContent = 'DROP HERE';
+        dragState.placeholder = ph;
+        dragState.card.parentNode.insertBefore(ph, dragState.card);
+        // Pin the card size before going fixed so it doesn't collapse.
+        dragState.card.style.width = dragState.width + 'px';
+        dragState.card.style.height = dragState.height + 'px';
+        dragState.card.classList.add('dragging');
+        dragState.card.style.left = (dragState.startX - dragState.offsetX) + 'px';
+        dragState.card.style.top  = (dragState.startY - dragState.offsetY) + 'px';
+      }
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+  }
+
+  function cleanupDrag() {
+    if (!dragState) return;
+    const c = dragState.card;
+    c.classList.remove('dragging');
+    c.style.left = c.style.top = c.style.width = c.style.height = '';
+    if (dragState.grid) {
+      dragState.grid.classList.remove('is-dragging');
+      // Restore the layout's column setting; applyPadColumns() on re-render will reset it anyway.
+      if (dragState.prevGridCols !== undefined) {
+        dragState.grid.style.gridTemplateColumns = dragState.prevGridCols;
+      }
+    }
+    if (dragState.placeholder && dragState.placeholder.parentNode) {
+      dragState.placeholder.remove();
+    }
+    dragState = null;
+  }
+
+  // Decide where the pad would land based on the pointer position. We treat the
+  // "+ ADD PAD" tile as a valid drop target (drop = move to the end), and otherwise
+  // pick the nearest pad and drop before/after it. Works for both the stacked and
+  // multi-column layouts, and over empty space.
+  function computeInsertion(x, y) {
+    const grid = dragState.grid;
+    if (!grid) return;
+    const ph = dragState.placeholder;
+    if (!ph) return;
+
+    const cards = [...grid.querySelectorAll('.pad')].filter(c => c !== dragState.card);
+    const addBtn = grid.querySelector('.add-pad-btn');
+
+    // 1) If the pointer is over the add-pad tile (or below/right of it), drop at the end.
+    if (addBtn) {
+      const ar = addBtn.getBoundingClientRect();
+      const overAdd = x >= ar.left && x <= ar.right && y >= ar.top && y <= ar.bottom;
+      const pastAdd = y > ar.bottom || (y >= ar.top && x > ar.right);
+      if (overAdd || pastAdd) {
+        grid.insertBefore(ph, addBtn);
+        dragState.insertId = null;
+        dragState.insertEnd = true;
+        return;
+      }
+    }
+
+    if (cards.length === 0) {
+      // Only the dragged pad exists; just keep placeholder where it is.
+      dragState.insertId = null; dragState.insertEnd = true;
+      return;
+    }
+
+    // 2) Find the nearest pad to the pointer (straight-line distance to its center).
+    let nearest = null, nearestDist = Infinity;
+    cards.forEach(c => {
+      const r = c.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const d = Math.hypot(x - cx, y - cy);
+      if (d < nearestDist) { nearestDist = d; nearest = c; }
+    });
+
+    // 3) Decide whether to drop before or after that nearest pad.
+    const r = nearest.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const singleCol = grid.style.gridTemplateColumns.includes('repeat(1');
+    const after = singleCol ? (y > cy) : (x > cx);
+
+    if (after) {
+      // place after nearest
+      if (nearest.nextSibling) grid.insertBefore(ph, nearest.nextSibling);
+      else grid.appendChild(ph);
+      const next = nearest.nextElementSibling;
+      if (next && next.classList.contains('pad')) {
+        dragState.insertId = parseInt(next.dataset.padId);
+        dragState.insertEnd = false;
+      } else {
+        dragState.insertId = null;
+        dragState.insertEnd = true;
+      }
+    } else {
+      grid.insertBefore(ph, nearest);
+      dragState.insertId = parseInt(nearest.dataset.padId);
+      dragState.insertEnd = false;
+    }
+  }
+
+  // Move pad `fromId` so it sits just before pad `beforeId`. If `atEnd`, move it last.
+  function reorderPadTo(fromId, beforeId, atEnd) {
+    const fromIdx = pads.findIndex(p => p.id === fromId);
+    if (fromIdx === -1) return;
+    const [moved] = pads.splice(fromIdx, 1);
+    if (atEnd || beforeId === null || beforeId === undefined) {
+      pads.push(moved);
+    } else {
+      let toIdx = pads.findIndex(p => p.id === beforeId);
+      if (toIdx === -1) pads.push(moved);
+      else pads.splice(toIdx, 0, moved);
+    }
+    saveState();
+  }
+
+  function cutoffString(pad) {
+    if (pad.waveIdx === null) return '';
+    const wave = waves[pad.waveIdx];
+    const now = new Date();
+    const [dh, dm] = wave.deadline.split(':').map(Number);
+    const deadlineDate = new Date(now);
+    deadlineDate.setHours(dh, dm, 0, 0);
+    const secLeft = Math.floor((deadlineDate - now) / 1000);
+    if (secLeft > 0) {
+      const m = Math.floor(secLeft / 60);
+      const s = secLeft % 60;
+      return `${m}m ${s}s until ${wave.deadline} cutoff`;
+    }
+    return `Cutoff ${wave.deadline} passed`;
+  }
+
+  function applyPadStatus(pad, el) {
+    const filled = pad.slots.filter(s => s !== 'empty').length;
+    const loading = pad.slots.filter(s => s === 'loading').length;
+    const lateN = pad.slots.filter(s => s === 'late').length;
+    const dispN = pad.slots.filter(s => s === 'dispatched').length;
+    const past = isPastDeadline(pad);
+    const cutoffStr = cutoffString(pad);
+
+    if (pad.role === 'stage') {
+      el.className = 'pad-status-line';
+      el.innerHTML = pad.waveIdx !== null
+        ? `Pre-load drivers for Wave ${waves[pad.waveIdx].num}`
+        : `Pre-load drivers for next wave`;
+      return;
+    }
+
+    if (pad.role === 'main') {
+      if (pad.waveIdx === null) {
+        el.className = 'pad-status-line';
+        el.innerHTML = `No active wave`;
+        return;
+      }
+      const w = waves[pad.waveIdx];
+      const onPad = filled;
+      const done = dispN + lateN;
+      const expected = w.effective;
+      if (done >= expected && expected > 0) {
+        el.className = 'pad-status-line success';
+        el.innerHTML = `Wave ${w.num} complete ✓`;
+      } else {
+        el.className = 'pad-status-line';
+        el.innerHTML = `Wave ${w.num}: <strong>${onPad}</strong> on pad / <strong>${expected}</strong> expected`;
+      }
+      return;
+    }
+
+    // 'late' and 'extra' overflow-style pads
+    if (filled === 0) {
+      el.className = 'pad-status-line';
+      el.innerHTML = pad.waveIdx !== null
+        ? `Stragglers go here • <strong>${cutoffStr}</strong>`
+        : `Stragglers go here — still try to get out by deadline`;
+      return;
+    }
+
+    const totalLate = waves.reduce((s,w) => s + w.late, 0);
+    const totalShort = config.totalRoutes - waves.reduce((s,w) => s + w.effective, 0);
+    const goalNeeded = Math.ceil(config.totalRoutes * config.goalPct / 100);
+    const lateBuffer = config.totalRoutes - goalNeeded;
+    const lateBudgetLeft = lateBuffer - totalLate - totalShort;
+    const canBeLate = Math.max(0, lateBudgetLeft);
+    const mustMakeIt = Math.max(0, loading - canBeLate);
+
+    if (past && loading > 0) {
+      el.className = 'pad-status-line danger';
+      el.innerHTML = `⛔ <strong>PAST CUTOFF</strong> • ${loading} still loading — Dispatch All marks late & clears`;
+    } else if (mustMakeIt === 0 && loading > 0) {
+      el.className = 'pad-status-line success';
+      el.innerHTML = `<strong>${loading}</strong> loading • <strong>${cutoffStr}</strong> • Buffer covers all`;
+    } else if (loading > 0) {
+      el.className = 'pad-status-line warn';
+      el.innerHTML = `<strong>${loading}</strong> loading • <strong>${cutoffStr}</strong> • Need <strong>${mustMakeIt}</strong> out by cutoff to hit ${config.goalPct}%`;
+    } else if (lateN > 0) {
+      el.className = 'pad-status-line danger';
+      el.innerHTML = `<strong>${lateN}</strong> marked late on ${pad.name}`;
+    } else {
+      el.className = 'pad-status-line success';
+      el.innerHTML = `<strong>${dispN}</strong> dispatched from ${pad.name} ✓`;
+    }
+  }
+
+  function renderWaves() {
+    const grid = document.getElementById('wavesGrid');
+    grid.innerHTML = '';
+    waves.forEach((w, i) => {
+      const totalMin = config.loadTime + config.dispatchTime;
+      let [hh, mm] = w.deadline.split(':').map(Number);
+      mm -= totalMin;
+      while (mm < 0) { mm += 60; hh--; }
+      const releaseTime = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+
+      const div = document.createElement('div');
+      const pct = w.effective ? (w.dispatched / w.effective * 100) : 0;
+      const complete = w.dispatched >= w.effective && w.effective > 0;
+      const mp = mainPad();
+      const sp = stagePad();
+      const onMain  = mp && mp.waveIdx === i;
+      const onStage = sp && sp.waveIdx === i;
+      div.className = `wave ${complete ? 'complete' : ''} ${onMain ? 'staged-pad2' : ''} ${onStage && !onMain ? 'staged-pad3' : ''}`;
+      const shortHtml = w.shortBy > 0 ? ` <span class="gap">• short ${w.shortBy}</span>` : '';
+      div.innerHTML = `
+        <div class="wave-time">W${w.num}</div>
+        <div class="wave-deadline">${releaseTime} → ${w.deadline}</div>
+        <div class="wave-routes">${w.drivers} drv / ${w.scheduled} rt${shortHtml}</div>
+        <div class="wave-progress"><div class="wave-progress-bar" style="width:${pct}%"></div></div>
+        <div class="wave-count">
+          <span>${w.dispatched}/${w.effective}</span>
+          <span><strong style="color:var(--accent)">${w.onTime}</strong> · <strong style="color:var(--warn)">${w.late}</strong></span>
+        </div>
+      `;
+      grid.appendChild(div);
+    });
+  }
+
+  function updateStats() {
+    const effectiveTotal = waves.reduce((s,w) => s + w.effective, 0);
+    const totalShort = config.totalRoutes - effectiveTotal;
+    const totalDispatched = waves.reduce((s,w) => s + w.dispatched, 0);
+    const totalOnTime = waves.reduce((s,w) => s + w.onTime, 0);
+    const totalLate = waves.reduce((s,w) => s + w.late, 0);
+    const remaining = effectiveTotal - totalDispatched;
+
+    const goalNeeded = Math.ceil(config.totalRoutes * config.goalPct / 100);
+    const lateBuffer = config.totalRoutes - goalNeeded;
+    const lateBudgetLeft = lateBuffer - totalLate - totalShort;
+
+    const pctSoFar = totalDispatched > 0 ? (totalOnTime / totalDispatched * 100) : 0;
+    const projectedFinal = (totalOnTime + remaining) / config.totalRoutes * 100;
+
+    const pctDisp = document.getElementById('goalPctDisplay');
+    pctDisp.textContent = `${pctSoFar.toFixed(1)}%`;
+    pctDisp.className = 'goal-pct ' +
+      (totalDispatched === 0 ? 'on-track' :
+       projectedFinal >= config.goalPct ? 'on-track' :
+       projectedFinal >= config.goalPct - 5 ? 'at-risk' : 'behind');
+
+    document.getElementById('goalSub').textContent =
+      `${totalOnTime} on time • ${totalLate} late • ${totalShort} short`;
+
+    const need = document.getElementById('goalNeed');
+    if (remaining === 0 && totalDispatched > 0) {
+      const finalPct = totalOnTime / config.totalRoutes * 100;
+      if (finalPct >= config.goalPct) {
+        need.className = 'goal-need';
+        need.innerHTML = `🎯 <strong>GOAL HIT!</strong> ${finalPct.toFixed(1)}% final.`;
+      } else {
+        need.className = 'goal-need danger';
+        need.innerHTML = `Final <strong>${finalPct.toFixed(1)}%</strong> — missed by ${(config.goalPct - finalPct).toFixed(1)}%.`;
+      }
+    } else if (lateBudgetLeft < 0) {
+      need.className = 'goal-need danger';
+      need.innerHTML = `❌ <strong>GOAL OUT OF REACH</strong> — ${totalLate + totalShort} late+short exceeds buffer of ${lateBuffer}.`;
+    } else if (lateBudgetLeft === 0) {
+      need.className = 'goal-need warn';
+      need.innerHTML = `⚠ <strong>EVERY ROUTE LEFT MUST BE ON TIME</strong>`;
+    } else {
+      const stillNeed = Math.max(0, goalNeeded - totalOnTime);
+      need.className = 'goal-need';
+      need.innerHTML = `Need <strong>${stillNeed}</strong> more on-time • Buffer: <strong>${lateBudgetLeft}</strong>`;
+    }
+
+    document.getElementById('statTotal').textContent = config.totalRoutes;
+    document.getElementById('statOnTime').textContent = totalOnTime;
+    document.getElementById('statLate').textContent = totalLate;
+    document.getElementById('statRemaining').textContent = remaining;
+    document.getElementById('statShort').textContent = totalShort;
+    const buf = document.getElementById('statBuffer');
+    buf.textContent = lateBudgetLeft;
+    buf.style.color = lateBudgetLeft <= 0 ? 'var(--danger)' :
+                      lateBudgetLeft <= 2 ? 'var(--warn)' : 'var(--accent)';
+
+    const alertDiv = document.getElementById('alertBanner');
+    alertDiv.innerHTML = '';
+    if (lateBudgetLeft < 0 && remaining > 0) {
+      alertDiv.innerHTML = `<div class="alert danger"><span class="alert-icon">⛔</span>
+        <strong>GOAL UNREACHABLE</strong> — run rest perfectly to minimize damage.</div>`;
+    } else if (lateBudgetLeft <= 1 && remaining > 0 && totalDispatched > 0) {
+      alertDiv.innerHTML = `<div class="alert action"><span class="alert-icon">⚠</span>
+        <strong>TIGHT:</strong> Only ${lateBudgetLeft} late dispatch${lateBudgetLeft === 1 ? '' : 'es'} allowed for the rest of the day.</div>`;
+    }
+  }
+
+  // ========= EXPORT CSV =========
+  // Builds a multi-section CSV of the current day and downloads it.
+  // Sections: meta, Day Summary, Per-Wave Breakdown (full), Event Log (chronological).
+  function exportCSV() {
+    if (!pads.length) { alert('Nothing to export yet — start a pad first.'); return; }
+    recomputeWaveCounts();
+
+    // CSV-escape a single cell.
+    const q = v => {
+      const s = (v === null || v === undefined) ? '' : String(v);
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const row = arr => arr.map(q).join(',');
+    const lines = [];
+
+    const now = new Date();
+    const stamp = now.toLocaleString('en-US', { hour12: false });
+
+    // Day-level numbers — mirror what updateStats() shows on the dashboard.
+    const effectiveTotal  = waves.reduce((s,w) => s + w.effective, 0);
+    const totalShort      = config.totalRoutes - effectiveTotal;
+    const totalDispatched = waves.reduce((s,w) => s + w.dispatched, 0);
+    const totalOnTime     = waves.reduce((s,w) => s + w.onTime, 0);
+    const totalLate       = waves.reduce((s,w) => s + w.late, 0);
+    const remaining       = effectiveTotal - totalDispatched;
+    const totalDrivers    = waves.reduce((s,w) => s + (w.drivers || 0), 0);
+    const goalNeeded      = Math.ceil(config.totalRoutes * config.goalPct / 100);
+    const lateBuffer      = config.totalRoutes - goalNeeded;
+    const lateBudgetLeft  = lateBuffer - totalLate - totalShort;
+    const pctSoFar        = totalDispatched > 0 ? (totalOnTime / totalDispatched * 100) : 0;
+    const projectedFinal  = (totalOnTime + remaining) / config.totalRoutes * 100;
+
+    // --- Meta ---
+    lines.push(row(['OTD FLEX TRACKER EXPORT']));
+    lines.push(row(['Exported', stamp]));
+    lines.push(row(['Site / Shift', siteShift || '—']));
+    lines.push(row(['Notes', dayNotes || '—']));
+    lines.push(row(['Goal %', config.goalPct]));
+    lines.push(row(['Load / dispatch window (min)', config.loadTime, config.dispatchTime]));
+    lines.push('');
+
+    // --- Day Summary ---
+    lines.push(row(['DAY SUMMARY']));
+    lines.push(row(['Metric', 'Value']));
+    lines.push(row(['Total routes', config.totalRoutes]));
+    lines.push(row(['Drivers assigned', totalDrivers]));
+    lines.push(row(['Dispatched', totalDispatched]));
+    lines.push(row(['On time', totalOnTime]));
+    lines.push(row(['Late', totalLate]));
+    lines.push(row(['Short (no driver)', totalShort]));
+    lines.push(row(['Remaining', remaining]));
+    lines.push(row(['On-time % so far', pctSoFar.toFixed(1) + '%']));
+    lines.push(row(['Projected final %', projectedFinal.toFixed(1) + '%']));
+    lines.push(row(['Late buffer remaining', lateBudgetLeft]));
+
+    // Full-day span: first logged event to last logged event.
+    let daySpan = '—';
+    if (eventLog.length) {
+      const ts = eventLog.map(e => e.t);
+      const lo = Math.min(...ts), hi = Math.max(...ts);
+      const secs = Math.round((hi - lo) / 1000);
+      const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+      const fmt = t => new Date(t).toLocaleTimeString('en-US', { hour12: false });
+      daySpan = `${h ? h + 'h ' : ''}${m}m (${fmt(lo)} → ${fmt(hi)})`;
+    }
+    lines.push(row(['Full-day span', daySpan]));
+
+    // Best / worst wave by on-time %.
+    const scored = waves.filter(w => w.dispatched > 0).map(w => ({ num: w.num, pct: w.onTime / w.dispatched * 100 }));
+    let bestWorst = '—';
+    if (scored.length) {
+      let best = scored[0], worst = scored[0];
+      scored.forEach(s => { if (s.pct > best.pct) best = s; if (s.pct < worst.pct) worst = s; });
+      bestWorst = scored.length === 1
+        ? `W${best.num} (${best.pct.toFixed(1)}%)`
+        : `Best W${best.num} (${best.pct.toFixed(1)}%) · Worst W${worst.num} (${worst.pct.toFixed(1)}%)`;
+    }
+    lines.push(row(['Best / worst wave', bestWorst]));
+    lines.push('');
+
+    // --- Per-Wave Breakdown (full) ---
+    lines.push(row(['PER-WAVE BREAKDOWN']));
+    lines.push(row(['Wave','Release','Deadline','Loading Started','Wave Completed','Cycle Time','Idle Before Load','Finished vs Cutoff','Scheduled','Drivers','Short','Dispatched','On Time','Late','Wave On-Time %','Running On-Time %','Complete']));
+    const cycle = (config.loadTime || 0) + (config.dispatchTime || 0);
+    const fmtDur = secs => { const m = Math.floor(secs / 60), s = secs % 60; return `${m}m${s ? ' ' + s + 's' : ''}`; };
+    let cumOn = 0, cumDisp = 0;
+    waves.forEach((w, i) => {
+      let [hh, mm] = w.deadline.split(':').map(Number);
+      mm -= cycle; while (mm < 0) { mm += 60; hh--; }
+      const release = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+      const wavePct = w.dispatched > 0 ? (w.onTime / w.dispatched * 100).toFixed(1) + '%' : '—';
+      const complete = (w.dispatched >= w.effective && w.effective > 0) ? 'Yes' : 'No';
+      const shortVal = Math.max(0, (w.scheduled || 0) - (w.drivers || 0));
+      const loadStart = w.loadingStartedClock || '—';
+      const doneClock = w.completedClock || '—';
+      let vsCutoff = '—';
+      if (w.completedAt) {
+        const [dh, dm] = w.deadline.split(':').map(Number);
+        const dl = new Date(w.completedAt); dl.setHours(dh, dm, 0, 0);
+        const diffMin = Math.round((dl.getTime() - w.completedAt) / 60000);
+        vsCutoff = diffMin >= 0 ? `${diffMin}m before cutoff` : `${-diffMin}m past cutoff`;
+      }
+      // Cycle time: first load → wave done.
+      let cycleTime = '—';
+      if (w.loadingStartedAt && w.completedAt && w.completedAt >= w.loadingStartedAt) {
+        cycleTime = fmtDur(Math.round((w.completedAt - w.loadingStartedAt) / 1000));
+      }
+      // Idle before load: previous wave's completion → this wave's first load.
+      let idle = '—';
+      if (i > 0) {
+        const prev = waves[i - 1];
+        if (prev.completedAt && w.loadingStartedAt) {
+          const gapSec = Math.round((w.loadingStartedAt - prev.completedAt) / 1000);
+          idle = gapSec < 0 ? 'overlapped' : fmtDur(gapSec);
+        }
+      }
+      // Running (cumulative) on-time % through this wave.
+      cumOn += w.onTime; cumDisp += w.dispatched;
+      const runPct = cumDisp > 0 ? (cumOn / cumDisp * 100).toFixed(1) + '%' : '—';
+
+      lines.push(row(['W' + w.num, release, w.deadline, loadStart, doneClock, cycleTime, idle, vsCutoff,
+        w.scheduled, w.drivers, shortVal, w.dispatched, w.onTime, w.late, wavePct, runPct, complete]));
+    });
+    lines.push('');
+
+    // --- Pad Slots (route # + stage location) ---
+    lines.push(row(['PAD SLOTS']));
+    lines.push(row(['Pad','Slot','Route #','Stage Location','Status']));
+    pads.forEach(p => {
+      ensureSlotArrays(p);
+      p.slots.forEach((st, i) => {
+        const route = p.routes[i] || '';
+        const stage = p.stages[i] || '';
+        // A slot is "untouched" when the route is still just the bare type
+        // prefix (e.g. "CX"), the stage is still "STG.", and it's empty.
+        const routeBlank = (route === '' || route === p.routeType);
+        const stageBlank = (stage === '' || stage === 'STG.');
+        if (routeBlank && stageBlank && st === 'empty') return;
+        lines.push(row([p.name, i + 1, route, stage, st]));
+      });
+    });
+    lines.push('');
+
+    // --- Event Log (chronological) ---
+    lines.push(row(['EVENT LOG (chronological)']));
+    lines.push(row(['Time','Wave','Pad','Action','Detail']));
+    if (eventLog.length) {
+      eventLog.slice().sort((a,b) => a.t - b.t).forEach(e => {
+        lines.push(row([e.time, e.wave ? 'W' + e.wave : '', e.pad, e.action, e.detail]));
+      });
+    } else {
+      lines.push(row(['(no events logged yet)']));
+    }
+
+    // --- Download (BOM keeps Excel happy with UTF-8) ---
+    const csv = lines.join('\r\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const fname = `OTD_Flex_${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.csv`;
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // ========= ON LOAD: fill route-type dropdown, then show the board gate =========
+  window.addEventListener('DOMContentLoaded', () => {
+    // Fill the setup Route Type <select> from ROUTE_TYPES (default = first type).
+    const rtSel = document.getElementById('routeType');
+    if (rtSel) rtSel.innerHTML = routeTypeOptions(ROUTE_TYPES[0]);
+    // Pre-fill the last board name used on this device (convenience only).
+    try {
+      const last = localStorage.getItem('flexLastBoard');
+      const bn = document.getElementById('boardName');
+      if (last && bn) bn.value = last;
+    } catch (e) {}
+    const bn = document.getElementById('boardName');
+    if (bn) bn.focus();
+  });
+</script>
+</body>
+</html>

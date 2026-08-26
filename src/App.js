@@ -5,7 +5,7 @@
 import React, { useState, useMemo } from 'react';
 import Papa from 'papaparse';
 import _ from 'lodash';
-import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown, LayoutGrid, ShieldCheck, Target } from 'lucide-react';
+import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown, LayoutGrid, ShieldCheck, Target, Truck } from 'lucide-react';
 import { WATCHTOWER_HTML_B64, WWSC_HTML_B64 } from './dashboards';
 
 // ============================================================
@@ -2050,6 +2050,30 @@ function HtmlDashboard({ b64, title, onBack }) {
   );
 }
 
+// Full-screen wrapper for a same-origin page loaded by URL (used for the Flex
+// tracker, which talks to /api/flex and so must run on the app's own origin
+// rather than as an inline srcDoc document).
+function UrlDashboard({ src, title, onBack }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-800 bg-slate-950/95 shrink-0">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" /> Hub
+        </button>
+        <span className="text-slate-200 font-semibold text-sm truncate">{title}</span>
+      </div>
+      <iframe
+        title={title}
+        src={src}
+        className="flex-1 w-full border-0 bg-white"
+      />
+    </div>
+  );
+}
+
 export default function AnalyticsHub() {
   const [currentView, setCurrentView] = useState('hub');
 
@@ -2070,6 +2094,10 @@ export default function AnalyticsHub() {
 
   if (currentView === 'wwsc') {
     return <HtmlDashboard b64={WWSC_HTML_B64} title="WWSC Scorecard" onBack={() => setCurrentView('hub')} />;
+  }
+
+  if (currentView === 'flex') {
+    return <UrlDashboard src="/flex.html" title="Pad Dispatch Tracker" onBack={() => setCurrentView('hub')} />;
   }
 
   return (
@@ -2184,6 +2212,26 @@ export default function AnalyticsHub() {
               <span className="px-2.5 py-0.5 bg-teal-900/30 text-teal-400 rounded-full text-xs font-medium">By Pillar</span>
               <span className="px-2.5 py-0.5 bg-teal-900/30 text-teal-400 rounded-full text-xs font-medium">Scorecard</span>
               <span className="px-2.5 py-0.5 bg-teal-900/30 text-teal-400 rounded-full text-xs font-medium">Trends</span>
+            </div>
+          </button>
+
+          {/* Pad Dispatch (Flex) Tracker Card */}
+          <button
+            onClick={() => setCurrentView('flex')}
+            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 border border-slate-700 hover:border-amber-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-amber-500/10 hover:-translate-y-1"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-11 h-11 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
+                <Truck className="w-5 h-5 text-amber-400" />
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-amber-400 transition-colors" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-1.5 group-hover:text-amber-400 transition-colors">Pad Dispatch Tracker</h2>
+            <p className="text-gray-400 text-sm mb-3">Live pad board — check-in fills routes and staging, auto dispatch and wave hand-off, shared by board name</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-0.5 bg-amber-900/30 text-amber-400 rounded-full text-xs font-medium">Live Board</span>
+              <span className="px-2.5 py-0.5 bg-amber-900/30 text-amber-400 rounded-full text-xs font-medium">Check-in</span>
+              <span className="px-2.5 py-0.5 bg-amber-900/30 text-amber-400 rounded-full text-xs font-medium">By Station</span>
             </div>
           </button>
         </div>
