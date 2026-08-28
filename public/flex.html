@@ -445,6 +445,19 @@
     text-align: center; width: 100%;
   }
   .driver-row span { font-size: 13px; }
+  /* Editable wave deadline on the Configure screen. */
+  .wave-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .wave-time-input {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    border-radius: 4px; padding: 2px 4px; font-family: inherit; font-size: 12px; outline: none;
+  }
+  .wave-time-input:focus { border-color: var(--blue); }
+  .wave-start { color: var(--muted); font-size: 11px; }
+  .wave-anchor {
+    color: var(--warn); font-size: 11px; cursor: pointer; border: 1px solid var(--warn);
+    border-radius: 4px; padding: 0 5px; white-space: nowrap;
+  }
+  .wave-anchor:hover { background: var(--warn); color: #000; }
   .driver-totals {
     margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
     display: flex; justify-content: space-between; font-size: 13px;
@@ -1200,6 +1213,46 @@
     document.getElementById('driverAllocSection').classList.remove('hidden');
   }
 
+  // Add minutes to an "HH:MM" time, wrapping across the hour/day.
+  function addMinutesHHMM(hhmm, mins) {
+    let [hh, mm] = hhmm.split(':').map(Number);
+    mm += mins;
+    while (mm >= 60) { mm -= 60; hh++; }
+    while (mm < 0)  { mm += 60; hh--; }
+    hh = ((hh % 24) + 24) % 24;
+    return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+  }
+
+  // Re-space wave deadlines at the normal interval. Any wave the user manually
+  // edited is an "anchor" (w.anchored) and keeps its time; every wave that
+  // follows an anchor and hasn't itself been edited is set to the previous
+  // wave's deadline + interval. So editing one wave shifts the ones after it,
+  // unless a later one was also edited.
+  function recomputeWaveTimes() {
+    const interval = parseInt(document.getElementById('waveInterval').value) || 15;
+    for (let i = 1; i < waves.length; i++) {
+      if (waves[i].anchored) continue;                         // fixed by a manual edit
+      waves[i].deadline = addMinutesHHMM(waves[i - 1].deadline, interval);
+    }
+  }
+
+  // Called when a wave's deadline is edited on the Configure screen. Marks it as
+  // an anchor, cascades the later non-anchored waves, and refreshes the list.
+  function editWaveTime(idx, val) {
+    if (!/^\d{1,2}:\d{2}$/.test(val || '')) return;            // ignore bad input
+    waves[idx].deadline = val;
+    waves[idx].anchored = true;
+    recomputeWaveTimes();
+    renderDriverRows();
+  }
+
+  // Clear a manual edit so the wave flows from the interval again.
+  function clearWaveAnchor(idx) {
+    waves[idx].anchored = false;
+    recomputeWaveTimes();
+    renderDriverRows();
+  }
+
   function renderDriverRows() {
     const rowsDiv = document.getElementById('driverRows');
     rowsDiv.innerHTML = '';
@@ -1208,7 +1261,14 @@
       const row = document.createElement('div');
       row.className = 'driver-row';
       row.innerHTML = `
-        <span>W${w.num} • ${releaseTime} → ${w.deadline}</span>
+        <span class="wave-cell">
+          <strong>W${w.num}</strong>
+          <input type="time" class="wave-time-input" value="${w.deadline}"
+                 onchange="editWaveTime(${i}, this.value)"
+                 title="Wave deadline — edit to override. Later waves shift by the interval unless they're also edited.">
+          <span class="wave-start">start ${releaseTime}</span>
+          ${w.anchored ? `<span class="wave-anchor" onclick="clearWaveAnchor(${i})" title="Edited — click to reset to auto">✎ auto</span>` : ''}
+        </span>
         <span style="text-align:center;color:var(--muted);">${w.scheduled}</span>
         <input type="number" min="0" value="${w.drivers}" onchange="updateDriverCount(${i}, this.value)">
       `;
