@@ -321,6 +321,16 @@
   .slot-input:focus { border-color: var(--blue); }
   .slot-input::placeholder { color: var(--muted); }
   .slot-stage { color: var(--blue); font-weight: 500; }
+  /* Route row: a type dropdown + a number field side by side. */
+  .slot-route-row { display: flex; gap: 4px; }
+  .slot-type {
+    flex: 0 0 auto; width: 54px; padding: 3px 2px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--blue);
+    border-radius: 4px; font-family: inherit; font-size: 11px; font-weight: 600;
+    outline: none; cursor: pointer;
+  }
+  .slot-type:focus { border-color: var(--blue); }
+  .slot-route-row .slot-route { flex: 1 1 auto; width: auto; min-width: 0; }
 
   /* [EDIT:CONFIRM] In-page confirmation dialog (replaces native confirm()). */
   .confirm-overlay {
@@ -728,10 +738,11 @@
       waveIdx: (waveIdx === undefined ? null : waveIdx),
       feedsInto: null,   // id of the pad this one feeds when that pad finishes a wave; null = independent
       timerStartedAt: null,  // ms timestamp when "Start Loading" was pressed on THIS pad; null = not started
-      routeType: rt,                          // route-type prefix for this pad's route fields
+      routeType: rt,                          // default route type for new slots on this pad
       slotCols: 'auto',                       // slot-grid columns: 'auto' (responsive) or a number
       slots: Array(capacity).fill('empty'),   // status per slot: empty / loading / dispatched / late
-      routes: Array(capacity).fill(rt),       // route number per slot (starts with the route-type prefix)
+      routeTypes: Array(capacity).fill(rt),   // per-slot route TYPE (dropdown; defaults to pad type)
+      routes: Array(capacity).fill(''),       // per-slot route NUMBER (typed; starts blank)
       stages: Array(capacity).fill('STG.')    // stage location per slot (auto-prefixed with STG.)
     };
   }
@@ -743,19 +754,28 @@
   // its capacity. (Backfills pads created before these fields existed and keeps
   // the arrays the same length as the slot count.)
   function ensureSlotArrays(pad) {
-    // Backfill the route type for older saves.
+    // Backfill the default route type for older saves.
     if (!pad.routeType) pad.routeType = (config && config.routeType) || ROUTE_TYPES[0];
     // Backfill the slot-grid column setting for older saves.
     if (pad.slotCols == null) pad.slotCols = 'auto';
     if (!Array.isArray(pad.routes)) pad.routes = [];
+    if (!Array.isArray(pad.routeTypes)) pad.routeTypes = [];
     if (!Array.isArray(pad.stages)) pad.stages = [];
+    const typeRe = new RegExp('^(' + ROUTE_TYPES.join('|') + ')', 'i');
     for (let i = 0; i < pad.capacity; i++) {
-      // Empty route fields start with the pad's route-type prefix; empty stage
-      // fields start with "STG.".
-      if (pad.routes[i] == null) pad.routes[i] = pad.routeType;
+      // Migrate older saves where the route was one combined string like "CX134":
+      // split it into a per-slot type + a number.
+      if (pad.routeTypes[i] == null) {
+        const existing = (pad.routes[i] != null) ? String(pad.routes[i]) : '';
+        const m = existing.match(typeRe);
+        if (m) { pad.routeTypes[i] = m[1].toUpperCase(); pad.routes[i] = existing.slice(m[1].length); }
+        else   { pad.routeTypes[i] = pad.routeType;      pad.routes[i] = existing; }
+      }
+      if (pad.routes[i] == null) pad.routes[i] = '';       // number starts blank
       if (pad.stages[i] == null) pad.stages[i] = 'STG.';
     }
-    pad.routes.length = pad.capacity;   // trim if capacity shrank
+    pad.routes.length = pad.capacity;        // trim if capacity shrank
+    pad.routeTypes.length = pad.capacity;
     pad.stages.length = pad.capacity;
   }
 
@@ -764,7 +784,8 @@
   function resetPadEntries(pad) {
     const rt = pad.routeType || ROUTE_TYPES[0];
     pad.slots  = Array(pad.capacity).fill('empty');
-    pad.routes = Array(pad.capacity).fill(rt);
+    pad.routeTypes = Array(pad.capacity).fill(rt);
+    pad.routes = Array(pad.capacity).fill('');
     pad.stages = Array(pad.capacity).fill('STG.');
   }
 
@@ -805,9 +826,9 @@
   // True once a slot has real check-in info: a route number beyond the bare type
   // prefix, or a stage location beyond the bare "STG." prefix.
   function slotHasInfo(pad, i) {
-    const route = (pad.routes[i] || '').trim();
+    const num = (pad.routes[i] || '').trim();
     const stage = (pad.stages[i] || '').trim();
-    const routeHas = route !== '' && route.toUpperCase() !== (pad.routeType || '').toUpperCase();
+    const routeHas = num !== '';                                   // a route number was typed
     const stageHas = stage !== '' && stage.toUpperCase() !== 'STG.';
     return routeHas || stageHas;
   }
@@ -952,7 +973,7 @@
     if (!BOARD) return;
     setLive('saving');
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => serverSave(blob), 200);
+    saveTimer = setTimeout(() => serverSave(blob), 500);
   }
 
   async function serverSave(blob) {
@@ -1092,7 +1113,7 @@
   }
 
   // ---- Polling: pull in other people's changes ----
-  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 1000); }
+  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 3500); }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
   async function pollServer() {
@@ -1749,19 +1770,21 @@
       // Step the target pad to its own next wave.
       target.waveIdx = newWaveIdx;
       if (feederHandsOff) {
-        // Carry the feeder's staged drivers — slot state AND their route/stage
-        // text — onto the target pad, then fully clear the feeder.
+        // Carry the feeder's staged drivers — slot state, route TYPE, route
+        // number, and stage — onto the target pad, then fully clear the feeder.
         const n = target.capacity;
         const S = Array(n).fill('empty');
-        const R = Array(n).fill(target.routeType || ROUTE_TYPES[0]);
+        const T = Array(n).fill(target.routeType || ROUTE_TYPES[0]);
+        const R = Array(n).fill('');
         const G = Array(n).fill('STG.');
         ensureSlotArrays(feeder);
         for (let i = 0; i < Math.min(n, feeder.capacity); i++) {
           S[i] = feeder.slots[i];
+          T[i] = feeder.routeTypes[i];
           R[i] = feeder.routes[i];
           G[i] = feeder.stages[i];
         }
-        target.slots = S; target.routes = R; target.stages = G;
+        target.slots = S; target.routeTypes = T; target.routes = R; target.stages = G;
       } else {
         // No hand-off: target rolls forward empty (slots + text) so drivers load
         // directly onto it.
@@ -2013,35 +2036,44 @@
         status.title = 'Click: empty → loading → dispatched / late → empty';
         status.onclick = () => cycleSlot(pad.id, i);  // cycleSlot re-renders + saves
 
-        // --- Route # field ---------------------------------------------------
-        const routeInput = document.createElement('input');
-        routeInput.className = 'slot-input slot-route';
-        routeInput.placeholder = pad.routeType;       // hint shows the type prefix
-        routeInput.value = pad.routes[i] || pad.routeType;  // starts with the prefix
-        routeInput.onclick = (e) => e.stopPropagation();    // typing must not cycle state
-        // If the operator clicks in and the field is blank, seed the prefix and
-        // drop the caret after it so they can type the number immediately.
-        routeInput.onfocus = (e) => {
-          if (!e.target.value) e.target.value = pad.routeType;
-          placeCaretEnd(e.target);
-        };
-        // On every keystroke: re-assert the pad's route-type prefix, store it,
-        // auto-occupy the slot if it now has info, refresh counts, and save.
-        // We update this one slot's visuals in place (no full re-render) so the
-        // cursor never jumps while typing.
-        routeInput.oninput = (e) => {
-          const v = normalizeRoute(e.target.value, pad.routeType);
-          e.target.value = v;
-          placeCaretEnd(e.target);
+        // --- Route: a TYPE dropdown + a NUMBER field ------------------------
+        // The pad can hold mixed types, so each slot picks its own type from the
+        // dropdown (defaults to the pad's type) and the number is typed separately.
+        const routeRow = document.createElement('div');
+        routeRow.className = 'slot-route-row';
+
+        const typeSel = document.createElement('select');
+        typeSel.className = 'slot-type';
+        typeSel.innerHTML = routeTypeOptions(pad.routeTypes[i] || pad.routeType);
+        typeSel.title = 'Route type';
+        typeSel.onclick = (e) => e.stopPropagation();
+        typeSel.onchange = (e) => {
           ensureSlotArrays(pad);
-          pad.routes[i] = v;
-          if (autoFillSlot(pad, i)) {
+          pad.routeTypes[i] = e.target.value;
+          // Changing only the type does NOT mark the slot filled — a driver is
+          // only "there" once a route number is typed.
+          updatePadFillDisplays(pad, card);
+          saveState();
+        };
+
+        const numInput = document.createElement('input');
+        numInput.className = 'slot-input slot-route';
+        numInput.value = pad.routes[i] || '';       // blank until a number is typed
+        numInput.setAttribute('inputmode', 'numeric');
+        numInput.onclick = (e) => e.stopPropagation();
+        numInput.oninput = (e) => {
+          ensureSlotArrays(pad);
+          pad.routes[i] = e.target.value;
+          if (autoFillSlot(pad, i)) {              // typing a number fills the slot
             slot.className = `slot ${pad.slots[i]}`;
             status.textContent = slotStatusLabel(pad.slots[i], i);
           }
           updatePadFillDisplays(pad, card);
           saveState();
         };
+
+        routeRow.appendChild(typeSel);
+        routeRow.appendChild(numInput);
 
         // --- Stage field (STG. prefix) ---------------------------------------
         const stageInput = document.createElement('input');
@@ -2069,7 +2101,7 @@
 
         // --- assemble the cell ----------------------------------------------
         slot.appendChild(status);
-        slot.appendChild(routeInput);
+        slot.appendChild(routeRow);
         slot.appendChild(stageInput);
         slotsDiv.appendChild(slot);
       });
@@ -2608,11 +2640,12 @@
     pads.forEach(p => {
       ensureSlotArrays(p);
       p.slots.forEach((st, i) => {
-        const route = p.routes[i] || '';
+        const num = p.routes[i] || '';
+        const route = num ? ((p.routeTypes[i] || '') + num) : '';   // e.g. "AX134"
         const stage = p.stages[i] || '';
-        // A slot is "untouched" when the route is still just the bare type
-        // prefix (e.g. "CX"), the stage is still "STG.", and it's empty.
-        const routeBlank = (route === '' || route === p.routeType);
+        // A slot is "untouched" when no route number is typed, the stage is still
+        // "STG.", and it's empty.
+        const routeBlank = (num === '');
         const stageBlank = (stage === '' || stage === 'STG.');
         if (routeBlank && stageBlank && st === 'empty') return;
         lines.push(row([p.name, i + 1, route, stage, st]));
