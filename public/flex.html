@@ -20,7 +20,7 @@
       radial-gradient(circle at 20% 0%, rgba(74,158,255,0.08), transparent 50%),
       radial-gradient(circle at 80% 100%, rgba(180,109,255,0.06), transparent 50%);
   }
-  .container { max-width: 1500px; margin: 0 auto; padding: 20px; }
+  .container { max-width: 1500px; margin: 0 auto; padding: 12px; }
   .header {
     display: flex; justify-content: space-between; align-items: center;
     border-bottom: 2px solid var(--border); padding-bottom: 14px; margin-bottom: 20px;
@@ -84,7 +84,7 @@
 
   .card {
     background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-    padding: 20px; position: relative;
+    padding: 12px; position: relative;
   }
   .card-label {
     font-size: 10px; text-transform: uppercase; letter-spacing: 2px;
@@ -159,7 +159,7 @@
 
   .pad {
     background: var(--panel); border: 2px solid var(--border); border-radius: 12px;
-    padding: 18px;
+    padding: 12px;
   }
   .pad.dragging {
     position: fixed; margin: 0; pointer-events: none; z-index: 9999;
@@ -255,7 +255,7 @@
   /* PER-PAD TIMER */
   .pad-timer {
     background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 8px; padding: 10px; margin-bottom: 12px; text-align: center;
+    border-radius: 8px; padding: 7px; margin-bottom: 8px; text-align: center;
   }
   .pad-timer-banner {
     font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 2px;
@@ -265,8 +265,8 @@
   .pad-timer-banner.dispatch { color: var(--danger); animation: blink 1.2s infinite; }
   .pad-timer-banner.over { color: var(--danger); }
   .pad-timer-display {
-    font-family: 'Bebas Neue', sans-serif; font-size: 40px; line-height: 1;
-    letter-spacing: 3px; color: var(--blue);
+    font-family: 'Bebas Neue', sans-serif; font-size: 30px; line-height: 1;
+    letter-spacing: 2px; color: var(--blue);
   }
   .pad-timer-display.loading { color: var(--warn); }
   .pad-timer-display.dispatch { color: var(--danger); }
@@ -284,21 +284,21 @@
   .pad-timer-btn.stop:hover { border-color: var(--danger); color: var(--danger); box-shadow: none; }
 
   .slots-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px;
-    margin-bottom: 12px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(102px, 1fr)); gap: 4px;
+    margin-bottom: 10px;
   }
   .slot {
-    background: var(--panel-2); border: 2px solid var(--border);
-    border-radius: 6px; transition: border-color 0.15s;
-    display: flex; flex-direction: column; gap: 4px; padding: 4px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 5px; transition: border-color 0.15s;
+    display: flex; flex-direction: column; gap: 2px; padding: 2px;
     position: relative; user-select: none;
   }
   .slot:hover { border-color: var(--blue); }
   /* Clickable status strip at the top of each slot cycles the state. */
   .slot-status {
-    cursor: pointer; text-align: center; border-radius: 4px;
-    font-family: 'Bebas Neue', sans-serif; font-size: 15px; letter-spacing: 1px;
-    padding: 3px 0; color: var(--muted);
+    cursor: pointer; text-align: center; border-radius: 3px;
+    font-family: 'Bebas Neue', sans-serif; font-size: 12px; letter-spacing: 0.5px;
+    padding: 1px 0; color: var(--muted);
     background: rgba(255,255,255,0.03); border: 1px solid var(--border);
     transition: all 0.15s;
   }
@@ -315,18 +315,18 @@
   /* Route # and stage-location inputs. */
   .slot-input {
     width: 100%; background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); border-radius: 4px; padding: 3px 5px;
-    font-family: inherit; font-size: 11px; outline: none;
+    color: var(--text); border-radius: 3px; padding: 2px 4px;
+    font-family: inherit; font-size: 10px; outline: none;
   }
   .slot-input:focus { border-color: var(--blue); }
   .slot-input::placeholder { color: var(--muted); }
   .slot-stage { color: var(--blue); font-weight: 500; }
   /* Route row: a type dropdown + a number field side by side. */
-  .slot-route-row { display: flex; gap: 4px; }
+  .slot-route-row { display: flex; gap: 3px; }
   .slot-type {
-    flex: 0 0 auto; width: 54px; padding: 3px 2px;
+    flex: 0 0 auto; width: 44px; padding: 2px 1px;
     background: var(--bg); border: 1px solid var(--border); color: var(--blue);
-    border-radius: 4px; font-family: inherit; font-size: 11px; font-weight: 600;
+    border-radius: 3px; font-family: inherit; font-size: 10px; font-weight: 600;
     outline: none; cursor: pointer;
   }
   .slot-type:focus { border-color: var(--blue); }
@@ -576,6 +576,11 @@
       <div style="display:flex; align-items:center; gap:14px;">
         <span class="live-dot" id="liveDot" title="Live — syncing with everyone on this board">● Live</span>
         <button class="btn-small" onclick="switchBoard()" title="Switch to a different board">⇄ Switch</button>
+        <label class="btn-small" title="Load a staging CSV (Route Code → Location) to auto-fill stages" style="cursor:pointer; margin:0;">
+          ⬆ Stage File
+          <input type="file" accept=".csv,text/csv" onchange="loadStageFile(this)" style="display:none;">
+        </label>
+        <span class="board-badge" id="stageBadge" style="color:var(--good); border-color:var(--good);"></span>
         <button class="btn-small" onclick="exportCSV()" title="Download a CSV of the current day">⬇ Export CSV</button>
         <button class="btn-small btn-danger-small" onclick="exportAndClear()" title="Download the CSV, then wipe this board's stored data">⬇ Export &amp; Clear</button>
         <div class="clock" id="clock">--:--:--</div>
@@ -707,6 +712,104 @@
 
   let config = {};
   let waves = [];
+
+  // ===================== STAGING FILE LOOKUP =====================
+  // A map of route code -> stage location, loaded from an uploaded CSV (the
+  // "Route Code" and "Location" columns). When someone types a route (type +
+  // number, e.g. "SA19"), we look it up here and auto-fill the STG. field.
+  // The map is stored in the shared board state, so uploading it on one computer
+  // makes the auto-fill work for everyone on that board.
+  let stageMap = {};
+
+  // Minimal CSV parser that handles quoted fields, commas, and newlines.
+  function parseCsvRows(text) {
+    const rows = []; let row = []; let cur = ''; let inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQ) {
+        if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else inQ = false; }
+        else cur += c;
+      } else {
+        if (c === '"') inQ = true;
+        else if (c === ',') { row.push(cur); cur = ''; }
+        else if (c === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+        else if (c === '\r') { /* ignore */ }
+        else cur += c;
+      }
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+
+  // Build the {code: location} map from a staging CSV. Finds the columns by
+  // header name (case-insensitive), so column order doesn't matter.
+  function parseStageCsv(text) {
+    const rows = parseCsvRows(text);
+    if (!rows.length) return {};
+    const header = rows[0].map(h => h.trim().toLowerCase());
+    const codeIdx = header.findIndex(h => h === 'route code' || h === 'route' || h === 'code');
+    const locIdx  = header.findIndex(h => h === 'location' || h === 'stage location' || h === 'stage' || h === 'staging');
+    if (codeIdx < 0 || locIdx < 0) return {};
+    const map = {};
+    for (let r = 1; r < rows.length; r++) {
+      const code = (rows[r][codeIdx] || '').trim().toUpperCase().replace(/\s+/g, '');
+      let loc = (rows[r][locIdx] || '').trim();
+      if (!code || !loc) continue;
+      if (!/^stg\./i.test(loc)) loc = 'STG.' + loc.replace(/^stg\.?/i, '');  // ensure STG. prefix
+      map[code] = loc;
+    }
+    return map;
+  }
+
+  // Handle the file input on the header. Parses the CSV, stores the map, fills
+  // any already-typed slots, shares it to the board, and refreshes the badge.
+  function loadStageFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      stageMap = parseStageCsv(String(reader.result || ''));
+      updateStageBadge();
+      applyStageToAllPads();
+      renderEverything();
+      saveState();     // share the map to everyone on this board
+    };
+    reader.readAsText(file);
+    input.value = '';  // let the same filename be re-uploaded later
+  }
+
+  function updateStageBadge() {
+    const b = document.getElementById('stageBadge');
+    if (!b) return;
+    const n = Object.keys(stageMap).length;
+    b.textContent = n ? ('▦ ' + n + ' staged') : '';
+  }
+
+  // The route code for a slot = its type + number, e.g. "SA" + "19" = "SA19".
+  function slotRouteCode(pad, i) {
+    return ((pad.routeTypes[i] || '') + (pad.routes[i] || '')).toUpperCase().replace(/\s+/g, '');
+  }
+
+  // Auto-fill a slot's stage from the map — but only if the stage is still empty
+  // or the bare "STG." (so a manually typed stage is never overwritten).
+  // Returns true if it changed the stage.
+  function applyStageLookup(pad, i) {
+    const num = (pad.routes[i] || '').trim();
+    if (!num) return false;                        // no route number yet
+    const loc = stageMap[slotRouteCode(pad, i)];
+    if (!loc) return false;                        // no match in the file
+    const cur = (pad.stages[i] || '').trim();
+    if (cur === '' || cur.toUpperCase() === 'STG.') { pad.stages[i] = loc; return true; }
+    return false;
+  }
+
+  function applyStageToAllPads() {
+    pads.forEach(p => {
+      ensureSlotArrays(p);
+      for (let i = 0; i < p.capacity; i++) applyStageLookup(p, i);
+    });
+  }
+
   // Pads are now a dynamic array. Each pad: { id, name, role, capacity, waveIdx, slots }
   // role: 'late' (overflow/stragglers), 'main' (current load), 'stage' (next wave), 'extra'
   let pads = [];
@@ -935,6 +1038,7 @@
       config: config, waves: waves, pads: pads, eventLog: eventLog,
       siteShift: siteShift, dayNotes: dayNotes,
       nextPadId: nextPadId, padColumns: padColumns,
+      stageMap: stageMap,
       _ts: localTs
     };
   }
@@ -1040,6 +1144,8 @@
     pads.forEach(p => ensureSlotArrays(p));
     nextPadId = state.nextPadId || (Math.max(0, ...pads.map(p => p.id)) + 1);
     padColumns = state.padColumns || 'auto';
+    stageMap = state.stageMap || {};
+    updateStageBadge();
     pads.forEach(p => syncFeederWave(p));
     serverTs = state._ts || 0;
     localTs = Math.max(localTs, serverTs);
@@ -2110,6 +2216,8 @@
         typeSel.onchange = (e) => {
           ensureSlotArrays(pad);
           pad.routeTypes[i] = e.target.value;
+          // Re-check the staging file with the new code and fill if matched.
+          if (applyStageLookup(pad, i)) stageInput.value = pad.stages[i];
           // Changing only the type does NOT mark the slot filled — a driver is
           // only "there" once a route number is typed.
           updatePadFillDisplays(pad, card);
@@ -2124,6 +2232,8 @@
         numInput.oninput = (e) => {
           ensureSlotArrays(pad);
           pad.routes[i] = e.target.value;
+          // Auto-fill the stage from the uploaded file if this code matches.
+          if (applyStageLookup(pad, i)) stageInput.value = pad.stages[i];
           if (autoFillSlot(pad, i)) {              // typing a number fills the slot
             slot.className = `slot ${pad.slots[i]}`;
             status.textContent = slotStatusLabel(pad.slots[i], i);
