@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pad Dispatch Tracker</title>
+<!-- SheetJS: lets the staging upload read Excel (.xlsx/.xls) files, not just CSV.
+     Loads from CDN; if it can't load, CSV/TSV still work without it. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -154,12 +157,13 @@
   .pads-section { margin-bottom: 20px; }
   .pads-grid {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;
+    align-items: start;
   }
   @media (max-width: 700px) { .pads-grid { grid-template-columns: 1fr; } }
 
   .pad {
     background: var(--panel); border: 2px solid var(--border); border-radius: 12px;
-    padding: 12px;
+    padding: 12px; min-width: 0;
   }
   .pad.dragging {
     position: fixed; margin: 0; pointer-events: none; z-index: 9999;
@@ -284,12 +288,12 @@
   .pad-timer-btn.stop:hover { border-color: var(--danger); color: var(--danger); box-shadow: none; }
 
   .slots-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(102px, 1fr)); gap: 4px;
-    margin-bottom: 10px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(102px, 1fr)); gap: 4px;
+    margin-bottom: 10px; min-width: 0;
   }
   .slot {
     background: var(--panel-2); border: 1px solid var(--border);
-    border-radius: 5px; transition: border-color 0.15s;
+    border-radius: 5px; transition: border-color 0.15s; min-width: 0;
     display: flex; flex-direction: column; gap: 2px; padding: 2px;
     position: relative; user-select: none;
   }
@@ -578,7 +582,7 @@
         <button class="btn-small" onclick="switchBoard()" title="Switch to a different board">⇄ Switch</button>
         <label class="btn-small" title="Load a staging CSV (Route Code → Location) to auto-fill stages" style="cursor:pointer; margin:0;">
           ⬆ Stage File
-          <input type="file" accept=".csv,text/csv" onchange="loadStageFile(this)" style="display:none;">
+          <input type="file" onchange="loadStageFile(this)" style="display:none;">
         </label>
         <span class="board-badge" id="stageBadge" style="color:var(--good); border-color:var(--good);"></span>
         <button class="btn-small" onclick="exportCSV()" title="Download a CSV of the current day">⬇ Export CSV</button>
@@ -721,8 +725,9 @@
   // makes the auto-fill work for everyone on that board.
   let stageMap = {};
 
-  // Minimal CSV parser that handles quoted fields, commas, and newlines.
-  function parseCsvRows(text) {
+  // Minimal delimited-text parser that handles quoted fields, the given
+  // delimiter, and newlines. Returns an array of rows (each an array of cells).
+  function parseDelimited(text, delim) {
     const rows = []; let row = []; let cur = ''; let inQ = false;
     for (let i = 0; i < text.length; i++) {
       const c = text[i];
@@ -731,7 +736,7 @@
         else cur += c;
       } else {
         if (c === '"') inQ = true;
-        else if (c === ',') { row.push(cur); cur = ''; }
+        else if (c === delim) { row.push(cur); cur = ''; }
         else if (c === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
         else if (c === '\r') { /* ignore */ }
         else cur += c;
@@ -741,48 +746,104 @@
     return rows;
   }
 
-  // Build the {code: location} map from a staging CSV. Finds the columns by
-  // header name (case-insensitive), so column order doesn't matter.
-  function parseStageCsv(text) {
-    const rows = parseCsvRows(text);
-    if (!rows.length) return {};
-    const header = rows[0].map(h => h.trim().toLowerCase());
-    const codeIdx = header.findIndex(h => h === 'route code' || h === 'route' || h === 'code');
-    const locIdx  = header.findIndex(h => h === 'location' || h === 'stage location' || h === 'stage' || h === 'staging');
-    if (codeIdx < 0 || locIdx < 0) return {};
+  // Turn raw text into rows, auto-detecting the delimiter (comma, tab, or
+  // semicolon) from the first line — so CSV, TSV, and semicolon files all work.
+  function rowsFromText(text) {
+    const first = (text.split(/\r?\n/)[0] || '');
+    const commas = (first.match(/,/g) || []).length;
+    const tabs   = (first.match(/\t/g) || []).length;
+    const semis  = (first.match(/;/g) || []).length;
+    let delim = ',';
+    if (tabs >= commas && tabs >= semis && tabs > 0) delim = '\t';
+    else if (semis > commas && semis > 0) delim = ';';
+    return parseDelimited(text, delim);
+  }
+
+  // Build the {code: location} map from a rows array. Finds the Route Code and
+  // Location columns by header name (case-insensitive), so column order and
+  // extra columns don't matter. Returns null if the two columns can't be found.
+  function mapFromRows(rows) {
+    if (!rows || !rows.length) return null;
+    const header = rows[0].map(h => String(h || '').trim().toLowerCase());
+    const codeIdx = header.findIndex(h => ['route code','routecode','route','code'].includes(h));
+    const locIdx  = header.findIndex(h => ['location','stage location','stage','staging','stg','stage loc'].includes(h));
+    if (codeIdx < 0 || locIdx < 0) return null;
     const map = {};
     for (let r = 1; r < rows.length; r++) {
-      const code = (rows[r][codeIdx] || '').trim().toUpperCase().replace(/\s+/g, '');
-      let loc = (rows[r][locIdx] || '').trim();
+      const code = String(rows[r][codeIdx] || '').trim().toUpperCase().replace(/\s+/g, '');
+      let loc = String(rows[r][locIdx] || '').trim();
       if (!code || !loc) continue;
       if (!/^stg\./i.test(loc)) loc = 'STG.' + loc.replace(/^stg\.?/i, '');  // ensure STG. prefix
-      map[code] = loc;
+      map[code] = loc;          // duplicates: the last row for a code wins
     }
     return map;
   }
 
-  // Handle the file input on the header. Parses the CSV, stores the map, fills
-  // any already-typed slots, shares it to the board, and refreshes the badge.
-  function loadStageFile(input) {
-    const file = input.files && input.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      stageMap = parseStageCsv(String(reader.result || ''));
-      updateStageBadge();
-      applyStageToAllPads();
-      renderEverything();
-      saveState();     // share the map to everyone on this board
-    };
-    reader.readAsText(file);
-    input.value = '';  // let the same filename be re-uploaded later
+  // Small status line under the header for upload feedback.
+  function setStageStatus(msg, isError) {
+    const b = document.getElementById('stageBadge');
+    if (!b) return;
+    b.textContent = msg;
+    b.style.color = isError ? 'var(--danger)' : 'var(--good)';
+    b.style.borderColor = isError ? 'var(--danger)' : 'var(--good)';
   }
 
   function updateStageBadge() {
-    const b = document.getElementById('stageBadge');
-    if (!b) return;
     const n = Object.keys(stageMap).length;
-    b.textContent = n ? ('▦ ' + n + ' staged') : '';
+    setStageStatus(n ? ('▦ ' + n + ' staged') : '', false);
+  }
+
+  // Handle the file input. Accepts CSV/TSV/semicolon text OR Excel (.xlsx/.xls).
+  // Gives clear feedback on success and on every failure mode so it never fails
+  // silently.
+  function loadStageFile(input) {
+    const file = input.files && input.files[0];
+    input.value = '';                       // let the same filename be re-picked
+    if (!file) return;
+    const name = (file.name || '').toLowerCase();
+    const isExcel = /\.(xlsx|xlsm|xls)$/.test(name);
+    setStageStatus('Reading ' + file.name + '…', false);
+
+    const finish = (map) => {
+      if (map === null) {
+        setStageStatus('⚠ Couldn\'t find "Route Code" and "Location" columns', true);
+        return;
+      }
+      const n = Object.keys(map).length;
+      if (!n) { setStageStatus('⚠ No routes found in that file', true); return; }
+      stageMap = map;
+      updateStageBadge();
+      applyStageToAllPads();
+      renderEverything();
+      saveState();                          // share to everyone on this board
+    };
+
+    const reader = new FileReader();
+    reader.onerror = () => setStageStatus('⚠ Could not read the file — try again', true);
+
+    if (isExcel) {
+      reader.onload = () => {
+        try {
+          if (typeof XLSX === 'undefined') {
+            setStageStatus('⚠ Excel support still loading — wait a moment and re-pick, or use CSV', true);
+            return;
+          }
+          const wb = XLSX.read(new Uint8Array(reader.result), { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+          finish(mapFromRows(rows));
+        } catch (e) {
+          setStageStatus('⚠ Couldn\'t read that Excel file — try saving as CSV', true);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = () => {
+        try { finish(mapFromRows(rowsFromText(String(reader.result || '')))); }
+        catch (e) { setStageStatus('⚠ Couldn\'t read that file — try saving as CSV', true); }
+      };
+      reader.readAsText(file);
+    }
   }
 
   // The route code for a slot = its type + number, e.g. "SA" + "19" = "SA19".
@@ -790,16 +851,27 @@
     return ((pad.routeTypes[i] || '') + (pad.routes[i] || '')).toUpperCase().replace(/\s+/g, '');
   }
 
-  // Auto-fill a slot's stage from the map — but only if the stage is still empty
-  // or the bare "STG." (so a manually typed stage is never overwritten).
+  // Auto-fill a slot's stage from the file based on its FULL route code.
+  //  • Fills only when the stage is empty, the bare "STG.", or a PREVIOUS
+  //    auto-fill (so a manually typed stage is never overwritten).
+  //  • If the code no longer matches but the stage was auto-filled, it clears
+  //    back to "STG." — so a stale auto value never lingers as you edit.
   // Returns true if it changed the stage.
   function applyStageLookup(pad, i) {
+    if (!Array.isArray(pad.stageAuto)) pad.stageAuto = [];
     const num = (pad.routes[i] || '').trim();
-    if (!num) return false;                        // no route number yet
-    const loc = stageMap[slotRouteCode(pad, i)];
-    if (!loc) return false;                        // no match in the file
+    const loc = num ? stageMap[slotRouteCode(pad, i)] : null;
     const cur = (pad.stages[i] || '').trim();
-    if (cur === '' || cur.toUpperCase() === 'STG.') { pad.stages[i] = loc; return true; }
+    const wasAuto = !!pad.stageAuto[i];
+    if (loc) {
+      if (cur === '' || cur.toUpperCase() === 'STG.' || wasAuto) {
+        pad.stages[i] = loc; pad.stageAuto[i] = true; return true;
+      }
+      return false;                        // manual stage present — leave it
+    }
+    if (wasAuto && cur.toUpperCase() !== 'STG.') {
+      pad.stages[i] = 'STG.'; pad.stageAuto[i] = false; return true;   // clear stale auto
+    }
     return false;
   }
 
@@ -859,7 +931,8 @@
       slots: Array(capacity).fill('empty'),   // status per slot: empty / loading / dispatched / late
       routeTypes: Array(capacity).fill(rt),   // per-slot route TYPE (dropdown; defaults to pad type)
       routes: Array(capacity).fill(''),       // per-slot route NUMBER (typed; starts blank)
-      stages: Array(capacity).fill('STG.')    // stage location per slot (auto-prefixed with STG.)
+      stages: Array(capacity).fill('STG.'),   // stage location per slot (auto-prefixed with STG.)
+      stageAuto: Array(capacity).fill(false)  // was this slot's stage auto-filled from the file?
     };
   }
 
@@ -877,6 +950,7 @@
     if (!Array.isArray(pad.routes)) pad.routes = [];
     if (!Array.isArray(pad.routeTypes)) pad.routeTypes = [];
     if (!Array.isArray(pad.stages)) pad.stages = [];
+    if (!Array.isArray(pad.stageAuto)) pad.stageAuto = [];
     const typeRe = new RegExp('^(' + ROUTE_TYPES.join('|') + ')', 'i');
     for (let i = 0; i < pad.capacity; i++) {
       // Migrate older saves where the route was one combined string like "CX134":
@@ -889,10 +963,12 @@
       }
       if (pad.routes[i] == null) pad.routes[i] = '';       // number starts blank
       if (pad.stages[i] == null) pad.stages[i] = 'STG.';
+      if (pad.stageAuto[i] == null) pad.stageAuto[i] = false;
     }
     pad.routes.length = pad.capacity;        // trim if capacity shrank
     pad.routeTypes.length = pad.capacity;
     pad.stages.length = pad.capacity;
+    pad.stageAuto.length = pad.capacity;
   }
 
   // Fully clear a pad: empty every slot AND reset its route/stage text back to
@@ -903,6 +979,7 @@
     pad.routeTypes = Array(pad.capacity).fill(rt);
     pad.routes = Array(pad.capacity).fill('');
     pad.stages = Array(pad.capacity).fill('STG.');
+    pad.stageAuto = Array(pad.capacity).fill(false);
   }
 
   // Label shown on the clickable status strip for each slot state.
@@ -2216,10 +2293,8 @@
         typeSel.onchange = (e) => {
           ensureSlotArrays(pad);
           pad.routeTypes[i] = e.target.value;
-          // Re-check the staging file with the new code and fill if matched.
+          // Type is a discrete choice, so look up immediately.
           if (applyStageLookup(pad, i)) stageInput.value = pad.stages[i];
-          // Changing only the type does NOT mark the slot filled — a driver is
-          // only "there" once a route number is typed.
           updatePadFillDisplays(pad, card);
           saveState();
         };
@@ -2232,14 +2307,24 @@
         numInput.oninput = (e) => {
           ensureSlotArrays(pad);
           pad.routes[i] = e.target.value;
-          // Auto-fill the stage from the uploaded file if this code matches.
-          if (applyStageLookup(pad, i)) stageInput.value = pad.stages[i];
           if (autoFillSlot(pad, i)) {              // typing a number fills the slot
             slot.className = `slot ${pad.slots[i]}`;
             status.textContent = slotStatusLabel(pad.slots[i], i);
           }
           updatePadFillDisplays(pad, card);
           saveState();
+          // Look up the stage only AFTER the operator pauses typing, so a
+          // partial code (e.g. "CX1" while typing "CX161") doesn't grab the
+          // wrong stage. ~500ms after the last keystroke we match the full code.
+          clearTimeout(numInput._stgTimer);
+          numInput._stgTimer = setTimeout(() => {
+            if (applyStageLookup(pad, i)) { stageInput.value = pad.stages[i]; saveState(); }
+          }, 500);
+        };
+        // Also resolve immediately when they leave the field.
+        numInput.onchange = () => {
+          clearTimeout(numInput._stgTimer);
+          if (applyStageLookup(pad, i)) { stageInput.value = pad.stages[i]; saveState(); }
         };
 
         routeRow.appendChild(typeSel);
@@ -2261,6 +2346,7 @@
           placeCaretEnd(e.target);
           ensureSlotArrays(pad);
           pad.stages[i] = v;
+          pad.stageAuto[i] = false;   // typed by hand → never auto-overwrite it
           if (autoFillSlot(pad, i)) {
             slot.className = `slot ${pad.slots[i]}`;
             status.textContent = slotStatusLabel(pad.slots[i], i);
