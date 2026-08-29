@@ -724,6 +724,7 @@
   // The map is stored in the shared board state, so uploading it on one computer
   // makes the auto-fill work for everyone on that board.
   let stageMap = {};
+  let stageMapV = 0;   // version stamp; bumped on each upload so clients know to sync
 
   // Minimal delimited-text parser that handles quoted fields, the given
   // delimiter, and newlines. Returns an array of rows (each an array of cells).
@@ -812,6 +813,7 @@
       const n = Object.keys(map).length;
       if (!n) { setStageStatus('⚠ No routes found in that file', true); return; }
       stageMap = map;
+      stageMapV = Date.now();     // new version so every client picks it up
       updateStageBadge();
       applyStageToAllPads();
       renderEverything();
@@ -880,6 +882,32 @@
       ensureSlotArrays(p);
       for (let i = 0; i < p.capacity; i++) applyStageLookup(p, i);
     });
+  }
+
+  // Fill any typed slots from the current map and update their stage inputs in
+  // place (without a full re-render, so it never interrupts someone typing).
+  function refreshStagesInPlace() {
+    pads.forEach(p => {
+      ensureSlotArrays(p);
+      for (let i = 0; i < p.capacity; i++) {
+        if (applyStageLookup(p, i)) {
+          const el = document.querySelector('.slot-stage[data-pad="' + p.id + '"][data-slot="' + i + '"]');
+          if (el && document.activeElement !== el) el.value = p.stages[i];
+        }
+      }
+    });
+  }
+
+  // Sync ONLY the staging file from an incoming board state. Runs on every poll,
+  // even when the full board adopt is skipped (e.g. while this person is typing),
+  // so the uploaded file reaches everyone and their typed routes fill in.
+  function syncStageMapFrom(state) {
+    const v = state.stageMapV || 0;
+    if (v <= stageMapV) return;                 // nothing newer
+    stageMapV = v;
+    stageMap = state.stageMap || {};
+    updateStageBadge();
+    refreshStagesInPlace();
   }
 
   // Pads are now a dynamic array. Each pad: { id, name, role, capacity, waveIdx, slots }
@@ -1115,7 +1143,7 @@
       config: config, waves: waves, pads: pads, eventLog: eventLog,
       siteShift: siteShift, dayNotes: dayNotes,
       nextPadId: nextPadId, padColumns: padColumns,
-      stageMap: stageMap,
+      stageMap: stageMap, stageMapV: stageMapV,
       _ts: localTs
     };
   }
@@ -1222,7 +1250,12 @@
     nextPadId = state.nextPadId || (Math.max(0, ...pads.map(p => p.id)) + 1);
     padColumns = state.padColumns || 'auto';
     stageMap = state.stageMap || {};
+    stageMapV = state.stageMapV || 0;
     updateStageBadge();
+    // Whoever has the file, everyone gets the auto-fill: after adopting a shared
+    // board, fill any route-numbered slot whose stage is still empty/STG. (never
+    // touches a manually typed stage).
+    if (Object.keys(stageMap).length) applyStageToAllPads();
     pads.forEach(p => syncFeederWave(p));
     serverTs = state._ts || 0;
     localTs = Math.max(localTs, serverTs);
@@ -1323,6 +1356,9 @@
       if (pads.length) resetToSetupLocal();
       return;
     }
+    // Always sync the staging file first — even if we skip adopting the full
+    // board below (e.g. while someone is typing), everyone still gets the file.
+    syncStageMapFrom(state);
     const incomingTs = state._ts || 0;
     if (incomingTs <= serverTs) return;    // nothing newer than what we have
     if (incomingTs <= localTs) return;     // our own unsaved edits are newer
@@ -2333,6 +2369,8 @@
         // --- Stage field (STG. prefix) ---------------------------------------
         const stageInput = document.createElement('input');
         stageInput.className = 'slot-input slot-stage';
+        stageInput.dataset.pad = pad.id;
+        stageInput.dataset.slot = i;
         stageInput.placeholder = 'STG.';
         stageInput.value = pad.stages[i] || 'STG.';   // starts with "STG."
         stageInput.onclick = (e) => e.stopPropagation();
