@@ -1397,40 +1397,45 @@
     const el = document.getElementById('dashboard');
     if (!el || el.classList.contains('hidden')) return;
     const vw = window.innerWidth, vh = window.innerHeight;
+    const targetAspect = vw / vh;
 
     el.style.position = 'absolute';
     el.style.left = '0'; el.style.top = '0';
     el.style.transformOrigin = 'top left';
     el.style.transform = 'none';
 
-    // Fill the WHOLE screen. The board's height depends on how wide we lay it
-    // out (slots reflow into more columns as it gets wider), so we try a range of
-    // design widths, measure the height each gives, and keep the one that lets
-    // the board scale up the most while still fitting — i.e. the biggest board
-    // that fills the screen. This uses the full height on wide/tall TVs instead
-    // of leaving an empty band.
+    // The board's height depends on how wide we lay it out (slots reflow). Find
+    // the design width whose shape (width ÷ height) is CLOSEST to the screen's
+    // shape, so filling the screen needs the least stretch.
+    const measure = (w) => { el.style.width = w + 'px'; const h = el.scrollHeight; return { w, h, aspect: w / h }; };
     let best = null;
-    const measure = (w) => {
-      el.style.width = w + 'px';
-      const h = el.scrollHeight;
-      const scale = Math.min(vw / w, vh / h);   // largest size that still fits
-      return { w, h, scale };
-    };
-    for (let w = 1100; w <= 3800; w += 220) {           // coarse pass
-      const m = measure(w);
-      if (!best || m.scale > best.scale) best = m;
+    for (let w = 1100; w <= 4600; w += 180) {
+      const m = measure(w); const diff = Math.abs(m.aspect - targetAspect);
+      if (!best || diff < best.diff) best = Object.assign(m, { diff });
     }
-    const c = best.w;                                   // refine around the winner
-    for (let w = Math.max(1000, c - 220); w <= c + 220; w += 55) {
-      const m = measure(w);
-      if (m.scale > best.scale) best = m;
+    const c = best.w;
+    for (let w = Math.max(1000, c - 180); w <= c + 180; w += 45) {
+      const m = measure(w); const diff = Math.abs(m.aspect - targetAspect);
+      if (diff < best.diff) best = Object.assign(m, { diff });
     }
 
     el.style.width = best.w + 'px';
-    el.style.transform = 'scale(' + best.scale + ')';
-    // Center whatever margin is left (usually tiny once it fills the screen).
-    el.style.left = Math.max(0, (vw - best.w * best.scale) / 2) + 'px';
-    el.style.top  = Math.max(0, (vh - best.h * best.scale) / 2) + 'px';
+    let sx = vw / best.w, sy = vh / best.h;   // fill the whole screen, both axes
+
+    // Safety cap: if the closest shape is still very different from the screen
+    // (e.g. a phone in display mode), don't stretch grotesquely — fall back to a
+    // uniform fit and center it. On a normal 16:9 TV the stretch is small, so it
+    // fills edge-to-edge.
+    const ratio = Math.max(sx, sy) / Math.min(sx, sy);
+    if (ratio > 1.4) {
+      const s = Math.min(sx, sy); sx = s; sy = s;
+      el.style.transform = 'scale(' + sx + ',' + sy + ')';
+      el.style.left = Math.max(0, (vw - best.w * sx) / 2) + 'px';
+      el.style.top  = Math.max(0, (vh - best.h * sy) / 2) + 'px';
+    } else {
+      el.style.transform = 'scale(' + sx + ',' + sy + ')';
+      el.style.left = '0'; el.style.top = '0';
+    }
   }
   window.addEventListener('resize', fitDisplay);
 
@@ -2398,13 +2403,14 @@
       //   3) a Stage field    (auto-starts with "STG.")
       const slotsDiv = card.querySelector('.slots-grid');
       ensureSlotArrays(pad);                       // guarantee routeType + arrays exist
-      // Apply this pad's grid columns. 'auto' keeps the responsive CSS layout;
-      // a number forces exactly that many columns. The square COUNT still comes
-      // from routes-per-wave (pad.capacity), so the last row can be partial.
-      if (pad.slotCols && pad.slotCols !== 'auto') {
+      // Apply this pad's grid columns. In DISPLAY (TV) mode we ignore a fixed
+      // grid and let the slots reflow responsively — that's what lets the board
+      // widen to match a 16:9 TV and fill the screen (no black side bars). In the
+      // normal editing view, a fixed grid like 4x6 is honored as set.
+      if (!displayMode && pad.slotCols && pad.slotCols !== 'auto') {
         slotsDiv.style.gridTemplateColumns = `repeat(${pad.slotCols}, 1fr)`;
       } else {
-        slotsDiv.style.gridTemplateColumns = '';   // fall back to CSS default
+        slotsDiv.style.gridTemplateColumns = '';   // responsive reflow
       }
       pad.slots.forEach((state, i) => {
         // --- the slot cell ---------------------------------------------------
