@@ -23,7 +23,7 @@
       radial-gradient(circle at 20% 0%, rgba(74,158,255,0.08), transparent 50%),
       radial-gradient(circle at 80% 100%, rgba(180,109,255,0.06), transparent 50%);
   }
-  .container { max-width: 1500px; margin: 0 auto; padding: 12px; }
+  .container { max-width: 100%; margin: 0 auto; padding: 10px 16px; }
   .header {
     display: flex; justify-content: space-between; align-items: center;
     border-bottom: 2px solid var(--border); padding-bottom: 14px; margin-bottom: 20px;
@@ -80,31 +80,31 @@
   .btn-small:hover { background: var(--blue); border-color: var(--blue); }
 
   .dashboard-top {
-    display: grid; grid-template-columns: 320px 340px 1fr; gap: 16px; margin-bottom: 20px;
+    display: grid; grid-template-columns: 260px 280px 1fr; gap: 12px; margin-bottom: 10px;
   }
   @media (max-width: 1100px) { .dashboard-top { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 700px)  { .dashboard-top { grid-template-columns: 1fr; } }
 
   .card {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-    padding: 12px; position: relative;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 10px; position: relative;
   }
   .card-label {
     font-size: 10px; text-transform: uppercase; letter-spacing: 2px;
-    color: var(--muted); margin-bottom: 10px;
+    color: var(--muted); margin-bottom: 5px;
   }
 
   .goal-pct {
-    font-family: 'Bebas Neue', sans-serif; font-size: 72px; line-height: 1;
+    font-family: 'Bebas Neue', sans-serif; font-size: 40px; line-height: 1;
     letter-spacing: 1px;
   }
   .goal-pct.on-track { color: var(--accent); }
   .goal-pct.at-risk { color: var(--warn); }
   .goal-pct.behind { color: var(--danger); }
-  .goal-sub { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .goal-sub { color: var(--muted); font-size: 11px; margin-top: 3px; }
   .goal-need {
-    margin-top: 12px; padding: 10px 12px; background: var(--panel-2);
-    border-left: 3px solid var(--accent); border-radius: 4px; font-size: 12px;
+    margin-top: 6px; padding: 6px 9px; background: var(--panel-2);
+    border-left: 3px solid var(--accent); border-radius: 4px; font-size: 11px;
   }
   .goal-need.warn { border-left-color: var(--warn); }
   .goal-need.danger { border-left-color: var(--danger); }
@@ -115,8 +115,8 @@
   /* TIMER - TWO PHASE */
   .timer-phase-banner {
     text-align: center; font-family: 'Bebas Neue', sans-serif;
-    font-size: 18px; letter-spacing: 3px; padding: 6px;
-    background: var(--panel-2); border-radius: 4px; margin-bottom: 8px;
+    font-size: 14px; letter-spacing: 2px; padding: 3px;
+    background: var(--panel-2); border-radius: 4px; margin-bottom: 4px;
     border: 1px solid var(--border);
   }
   .timer-phase-banner.idle { color: var(--muted); }
@@ -126,14 +126,14 @@
   @keyframes blink { 50% { opacity: 0.55; } }
 
   .timer-display {
-    font-family: 'Bebas Neue', sans-serif; font-size: 64px; line-height: 1;
-    letter-spacing: 4px; text-align: center; margin: 6px 0;
+    font-family: 'Bebas Neue', sans-serif; font-size: 40px; line-height: 1;
+    letter-spacing: 3px; text-align: center; margin: 2px 0;
     color: var(--blue);
   }
   .timer-display.loading { color: var(--warn); }
   .timer-display.dispatch { color: var(--danger); }
   .timer-display.over { color: var(--danger); }
-  .timer-sub { text-align: center; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .timer-sub { text-align: center; font-size: 10px; color: var(--muted); margin-bottom: 4px; }
   .timer-sub strong { color: var(--text); }
 
   .timer-controls { display: flex; gap: 8px; margin-top: 10px; }
@@ -144,10 +144,10 @@
   }
   .stat {
     background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
-    padding: 10px; text-align: center;
+    padding: 5px; text-align: center;
   }
   .stat-num {
-    font-family: 'Bebas Neue', sans-serif; font-size: 28px; line-height: 1;
+    font-family: 'Bebas Neue', sans-serif; font-size: 22px; line-height: 1;
   }
   .stat-label {
     font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px;
@@ -288,21 +288,21 @@
   .pad-timer-btn.stop:hover { border-color: var(--danger); color: var(--danger); box-shadow: none; }
 
   .slots-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(102px, 1fr)); gap: 4px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(122px, 1fr)); gap: 5px;
     margin-bottom: 10px; min-width: 0;
   }
   .slot {
     background: var(--panel-2); border: 1px solid var(--border);
     border-radius: 5px; transition: border-color 0.15s; min-width: 0;
-    display: flex; flex-direction: column; gap: 2px; padding: 2px;
+    display: flex; flex-direction: column; gap: 3px; padding: 3px;
     position: relative; user-select: none;
   }
   .slot:hover { border-color: var(--blue); }
   /* Clickable status strip at the top of each slot cycles the state. */
   .slot-status {
     cursor: pointer; text-align: center; border-radius: 3px;
-    font-family: 'Bebas Neue', sans-serif; font-size: 12px; letter-spacing: 0.5px;
-    padding: 1px 0; color: var(--muted);
+    font-family: 'Bebas Neue', sans-serif; font-size: 16px; letter-spacing: 0.5px;
+    padding: 2px 0; color: var(--muted);
     background: rgba(255,255,255,0.03); border: 1px solid var(--border);
     transition: all 0.15s;
   }
@@ -319,8 +319,8 @@
   /* Route # and stage-location inputs. */
   .slot-input {
     width: 100%; background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); border-radius: 3px; padding: 2px 4px;
-    font-family: inherit; font-size: 10px; outline: none;
+    color: var(--text); border-radius: 3px; padding: 3px 5px;
+    font-family: inherit; font-size: 12px; outline: none;
   }
   .slot-input:focus { border-color: var(--blue); }
   .slot-input::placeholder { color: var(--muted); }
@@ -328,9 +328,9 @@
   /* Route row: a type dropdown + a number field side by side. */
   .slot-route-row { display: flex; gap: 3px; }
   .slot-type {
-    flex: 0 0 auto; width: 44px; padding: 2px 1px;
+    flex: 0 0 auto; width: 50px; padding: 3px 1px;
     background: var(--bg); border: 1px solid var(--border); color: var(--blue);
-    border-radius: 3px; font-family: inherit; font-size: 10px; font-weight: 600;
+    border-radius: 3px; font-family: inherit; font-size: 12px; font-weight: 600;
     outline: none; cursor: pointer;
   }
   .slot-type:focus { border-color: var(--blue); }
@@ -364,6 +364,25 @@
   .live-dot.offline { color: var(--danger); }
   .btn-danger-small { border-color: var(--danger) !important; color: var(--danger) !important; }
   .btn-danger-small:hover { background: var(--danger) !important; color: #fff !important; }
+
+  /* ---- Display (TV) mode: read-only, auto-fit to any screen ---- */
+  #displayExit {
+    position: fixed; top: 8px; right: 8px; z-index: 2000; display: none;
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; font-family: inherit; font-size: 13px; cursor: pointer;
+    opacity: 0.25; transition: opacity 0.15s;
+  }
+  #displayExit:hover { opacity: 1; }
+  body.display-mode { overflow: hidden; background: #05070c; }
+  body.display-mode #displayExit { display: block; }
+  /* Hide editing chrome on a TV; keep the summary + pads. */
+  body.display-mode .header-actions,
+  body.display-mode .site-row,
+  body.display-mode .pad-layout-row,
+  body.display-mode #alertBanner { display: none !important; }
+  /* The board is a passive display — no accidental taps/edits. */
+  body.display-mode #dashboard { pointer-events: none; }
+  body.display-mode .container { padding: 0; max-width: none; }
 
   .pad-actions {
     display: flex; gap: 6px; flex-wrap: wrap;
@@ -489,6 +508,9 @@
 <body>
 <div class="container">
 
+  <!-- Floating button to leave Display (TV) mode. Hidden unless in display mode. -->
+  <button id="displayExit" onclick="exitDisplay()">✕ Exit Display</button>
+
   <!-- BOARD GATE: choose which shared board to open. Everyone who opens the same
        board name shares the same live board; a different name is a separate board
        (so different stations don't collide). -->
@@ -577,7 +599,7 @@
         <span class="board-badge" id="boardBadge" title="Shared board — everyone with this name sees the same live board"></span>
         <span class="pad-info" id="padInfo"></span>
       </div>
-      <div style="display:flex; align-items:center; gap:14px;">
+      <div class="header-actions" style="display:flex; align-items:center; gap:14px;">
         <span class="live-dot" id="liveDot" title="Live — syncing with everyone on this board">● Live</span>
         <button class="btn-small" onclick="switchBoard()" title="Switch to a different board">⇄ Switch</button>
         <label class="btn-small" title="Load a staging CSV (Route Code → Location) to auto-fill stages" style="cursor:pointer; margin:0;">
@@ -587,13 +609,9 @@
         <span class="board-badge" id="stageBadge" style="color:var(--good); border-color:var(--good);"></span>
         <button class="btn-small" onclick="exportCSV()" title="Download a CSV of the current day">⬇ Export CSV</button>
         <button class="btn-small btn-danger-small" onclick="exportAndClear()" title="Download the CSV, then wipe this board's stored data">⬇ Export &amp; Clear</button>
+        <button class="btn-small" onclick="enterDisplay()" title="Full-screen read-only view that auto-fits any TV/monitor">📺 Display</button>
         <div class="clock" id="clock">--:--:--</div>
       </div>
-    </div>
-
-    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
-      <input id="siteShift" placeholder="Site / Shift / Your name" oninput="updateSessionMeta()"
-        style="flex:1; min-width:150px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-family:inherit; font-size:14px;" />
     </div>
 
     <div id="alertBanner"></div>
@@ -631,11 +649,12 @@
 
     <!-- 3 PADS -->
     <div class="pads-section">
-      <div class="card-label" style="padding-left:4px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div class="card-label pad-layout-row" style="padding-left:4px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
         <span>▼ Pad Layout
           <span style="margin-left:14px;text-transform:none;letter-spacing:0;">Drag the ⠿ grip to reorder • Click slot: empty → loading → dispatched → late</span>
         </span>
         <span style="text-transform:none; letter-spacing:0;">
+          <button class="btn-small" onclick="addPad()" title="Add another pad" style="margin-right:12px;">+ Add Pad</button>
           Columns:
           <select id="padCols" onchange="setPadColumns(this.value)" class="pad-role-select" style="margin-left:4px;">
             <option value="auto">Auto</option>
@@ -817,7 +836,7 @@
       updateStageBadge();
       applyStageToAllPads();
       renderEverything();
-      saveState();                          // share to everyone on this board
+      saveNow();                  // flush to the server immediately (survives a refresh)
     };
 
     const reader = new FileReader();
@@ -929,7 +948,10 @@
     const grid = document.getElementById('padsGrid');
     if (!grid) return;
     if (padColumns === 'auto') {
-      grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(300px, 1fr))';
+      // Fill the full width with the pads (the Add-Pad button is in the header,
+      // so it no longer eats a pad-width column).
+      const cols = Math.max(1, Math.min(pads.length, 6));
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     } else {
       grid.style.gridTemplateColumns = `repeat(${padColumns}, 1fr)`;
     }
@@ -1190,6 +1212,16 @@
     queueServerSave(blob);
   }
 
+  // Save right now, bypassing the debounce — used for important one-off changes
+  // (like loading the staging file) so a quick refresh can't lose them.
+  function saveNow() {
+    localTs = Date.now();
+    const blob = buildStateBlob();
+    try { localStorage.setItem(localKey(), JSON.stringify(blob)); } catch (e) {}
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    serverSave(blob);
+  }
+
   // Debounced push to the shared server so fast typing doesn't spam requests.
   function queueServerSave(blob) {
     if (!BOARD) return;
@@ -1331,6 +1363,54 @@
     const b = document.getElementById('boardBadge');
     if (b) b.textContent = BOARD ? ('▦ ' + BOARD) : '';
   }
+
+  // ---- Display (TV) mode: read-only view that auto-fits any screen ----
+  // We lay the board out at a fixed design width, then scale it (up or down) so
+  // the whole thing fits the screen with no scrolling — works on a phone or a
+  // 65" TV. It's opt-in per screen, so operators' editing views are untouched.
+  let displayMode = false;
+  const DISPLAY_W = 1600;   // design width the board is laid out at before scaling
+
+  function enterDisplay() {
+    displayMode = true;
+    document.body.classList.add('display-mode');
+    // Remember this so the screen comes back in Display mode after a refresh or
+    // reboot — no link to remember, just click Display once on that screen.
+    try { if (BOARD) localStorage.setItem('flexDisplayBoard', BOARD); } catch (e) {}
+    renderEverything();       // re-layout (hide add tile, fill columns)
+    fitDisplay();
+    setTimeout(fitDisplay, 60);
+    setTimeout(fitDisplay, 300);
+  }
+
+  function exitDisplay() {
+    displayMode = false;
+    document.body.classList.remove('display-mode');
+    try { localStorage.removeItem('flexDisplayBoard'); } catch (e) {}
+    const el = document.getElementById('dashboard');
+    if (el) { el.style.transform = ''; el.style.width = ''; el.style.position = ''; el.style.left = ''; el.style.top = ''; }
+    renderEverything();       // restore normal layout (add tile back, normal columns)
+  }
+
+  function fitDisplay() {
+    if (!displayMode) return;
+    const el = document.getElementById('dashboard');
+    if (!el || el.classList.contains('hidden')) return;
+    // Lay out at the fixed design width, measure, then scale to fit the viewport.
+    el.style.position = 'absolute';
+    el.style.left = '0'; el.style.top = '0';
+    el.style.transform = 'none';
+    el.style.width = DISPLAY_W + 'px';
+    const naturalH = el.scrollHeight;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const scale = Math.min(vw / DISPLAY_W, vh / naturalH);
+    el.style.transformOrigin = 'top left';
+    el.style.transform = 'scale(' + scale + ')';
+    // Center the scaled board on screen.
+    el.style.left = Math.max(0, (vw - DISPLAY_W * scale) / 2) + 'px';
+    el.style.top  = Math.max(0, (vh - naturalH * scale) / 2) + 'px';
+  }
+  window.addEventListener('resize', fitDisplay);
 
   // Live indicator in the header.
   function setLive(mode) {
@@ -2168,6 +2248,7 @@
     renderWaves();
     updateStats();
     saveState();
+    if (displayMode) fitDisplay();   // keep the TV view fitted as content changes
   }
 
   const ROLE_OPTS = [
@@ -2410,13 +2491,8 @@
       grid.appendChild(card);
     });
 
-    // Add Pad button
-    const addBtn = document.createElement('div');
-    addBtn.className = 'add-pad-btn';
-    addBtn.textContent = '+ ADD PAD';
-    addBtn.onclick = addPad;
-    grid.appendChild(addBtn);
-
+    // (The "+ Add Pad" control lives as a small button in the Pad Layout header
+    // now, so the pad cards fill the full width and route numbers get more room.)
     applyPadColumns();
   }
 
@@ -2720,16 +2796,12 @@
       const onMain  = mp && mp.waveIdx === i;
       const onStage = sp && sp.waveIdx === i;
       div.className = `wave ${complete ? 'complete' : ''} ${onMain ? 'staged-pad2' : ''} ${onStage && !onMain ? 'staged-pad3' : ''}`;
-      const shortHtml = w.shortBy > 0 ? ` <span class="gap">• short ${w.shortBy}</span>` : '';
+      // Slim view: just the wave number and its start → deadline. The current
+      // wave keeps its colored highlight; the driver/route counts and progress
+      // bar are dropped (that detail already lives on the pad itself).
       div.innerHTML = `
         <div class="wave-time">W${w.num}</div>
         <div class="wave-deadline">${releaseTime} → ${w.deadline}</div>
-        <div class="wave-routes">${w.drivers} drv / ${w.scheduled} rt${shortHtml}</div>
-        <div class="wave-progress"><div class="wave-progress-bar" style="width:${pct}%"></div></div>
-        <div class="wave-count">
-          <span>${w.dispatched}/${w.effective}</span>
-          <span><strong style="color:var(--accent)">${w.onTime}</strong> · <strong style="color:var(--warn)">${w.late}</strong></span>
-        </div>
       `;
       grid.appendChild(div);
     });
@@ -2969,19 +3041,36 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  // ========= ON LOAD: fill route-type dropdown, then show the board gate =========
-  window.addEventListener('DOMContentLoaded', () => {
-    // Fill the setup Route Type <select> from ROUTE_TYPES (default = first type).
+  // ========= ON LOAD: route-type dropdown, URL params, then the board gate =========
+  window.addEventListener('DOMContentLoaded', async () => {
     const rtSel = document.getElementById('routeType');
     if (rtSel) rtSel.innerHTML = routeTypeOptions(ROUTE_TYPES[0]);
-    // Pre-fill the last board name used on this device (convenience only).
-    try {
-      const last = localStorage.getItem('flexLastBoard');
-      const bn = document.getElementById('boardName');
-      if (last && bn) bn.value = last;
-    } catch (e) {}
+
+    const params = new URLSearchParams(location.search);
+    const urlBoard = params.get('board');
+    const wantTv = params.get('tv') === '1' || params.get('display') === '1';
     const bn = document.getElementById('boardName');
-    if (bn) bn.focus();
+
+    // If this screen was left in Display mode before, come back to it
+    // automatically — no link to remember.
+    let savedDisplayBoard = null;
+    try { savedDisplayBoard = localStorage.getItem('flexDisplayBoard'); } catch (e) {}
+
+    // Pre-fill the last board name used on this device (convenience only).
+    try { const last = localStorage.getItem('flexLastBoard'); if (last && bn) bn.value = last; } catch (e) {}
+
+    // Priority: an explicit ?board= link, then a remembered Display screen.
+    if (urlBoard && bn) {
+      bn.value = urlBoard;
+      await openBoard();
+      if (wantTv) enterDisplay();
+    } else if (savedDisplayBoard && bn) {
+      bn.value = savedDisplayBoard;
+      await openBoard();
+      enterDisplay();
+    } else if (bn) {
+      bn.focus();
+    }
   });
 </script>
 </body>
