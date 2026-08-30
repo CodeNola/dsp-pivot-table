@@ -367,10 +367,10 @@
 
   /* ---- Display (TV) mode: read-only, auto-fit to any screen ---- */
   #displayExit {
-    position: fixed; top: 8px; right: 8px; z-index: 2000; display: none;
-    background: var(--panel); color: var(--text); border: 1px solid var(--border);
-    border-radius: 8px; padding: 8px 12px; font-family: inherit; font-size: 13px; cursor: pointer;
-    opacity: 0.25; transition: opacity 0.15s;
+    position: fixed; top: 6px; right: 6px; z-index: 2147483647; display: none;
+    background: rgba(10,14,26,0.85); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 9px; font-family: inherit; font-size: 11px; cursor: pointer;
+    opacity: 0.18; transition: opacity 0.15s;
   }
   #displayExit:hover { opacity: 1; }
   body.display-mode { overflow: hidden; background: #05070c; }
@@ -2403,11 +2403,9 @@
       //   3) a Stage field    (auto-starts with "STG.")
       const slotsDiv = card.querySelector('.slots-grid');
       ensureSlotArrays(pad);                       // guarantee routeType + arrays exist
-      // Apply this pad's grid columns. In DISPLAY (TV) mode we ignore a fixed
-      // grid and let the slots reflow responsively — that's what lets the board
-      // widen to match a 16:9 TV and fill the screen (no black side bars). In the
-      // normal editing view, a fixed grid like 4x6 is honored as set.
-      if (!displayMode && pad.slotCols && pad.slotCols !== 'auto') {
+      // Honor a fixed grid (e.g. 4x6) in BOTH the editing view and the TV display
+      // so the pad shows exactly the columns you set. 'auto' reflows responsively.
+      if (pad.slotCols && pad.slotCols !== 'auto') {
         slotsDiv.style.gridTemplateColumns = `repeat(${pad.slotCols}, 1fr)`;
       } else {
         slotsDiv.style.gridTemplateColumns = '';   // responsive reflow
