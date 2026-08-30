@@ -2102,6 +2102,13 @@
     // newWaveIdx/feederHandsOff are computed once and passed in so the logic and
     // ordering stay identical to before.
     const commit = (newWaveIdx, feederHandsOff) => {
+      // One-press flow: send everything that's loaded, THEN advance. Loading
+      // slots become dispatched (on time) or late (past the cutoff) — exactly
+      // like Dispatch All — so the operator only needs this one button.
+      const past = isPastDeadline(target);
+      for (let i = 0; i < target.capacity; i++) {
+        if (target.slots[i] === 'loading') target.slots[i] = past ? 'late' : 'dispatched';
+      }
       // New wave = new deadline, so reset this pad's loading timer.
       target.timerStartedAt = null;
       recomputeWaveCounts();
@@ -2183,7 +2190,8 @@
       // Clear, count-based wording. "done" = drivers on this pad already marked
       // dispatched or late (i.e. sent out this wave).
       const plural = n => (n === 1 ? '' : 's');
-      const doneCount = target.slots.filter(s => s === 'dispatched' || s === 'late').length;
+      // Count everyone being sent this wave (loaded slots become dispatched on commit).
+      const doneCount = target.slots.filter(s => s === 'dispatched' || s === 'late' || s === 'loading').length;
       const donePart = doneCount > 0
         ? `${doneCount} driver${plural(doneCount)} on ${target.name} ${doneCount === 1 ? 'is' : 'are'} done`
         : `${target.name}`;
@@ -2195,21 +2203,9 @@
       uiConfirm(msg, () => commit(newWaveIdx, feederHandsOff));
     };
 
-    // If drivers are still loading, confirm marking them late first, then proceed.
-    let stillLoading = 0;
-    for (let i = 0; i < target.capacity; i++) {
-      if (target.slots[i] === 'loading') stillLoading++;
-    }
-    if (stillLoading > 0) {
-      uiConfirm(`${stillLoading} driver(s) on ${target.name} still loading. Mark them late and advance?`, () => {
-        for (let i = 0; i < target.capacity; i++) {
-          if (target.slots[i] === 'loading') target.slots[i] = 'late';
-        }
-        confirmAndCommit();
-      });
-    } else {
-      confirmAndCommit();
-    }
+    // Loaded slots are dispatched inside commit (on time / late by the cutoff),
+    // so there's no separate "mark late" step — one confirm and go.
+    confirmAndCommit();
   }
 
   // ========= RECOMPUTE WAVE COUNTS =========
@@ -2281,13 +2277,17 @@
         `<option value="${o.val}" ${pad.role === o.val ? 'selected' : ''}>${o.label}</option>`
       ).join('');
 
-      // Staging pads only get Clear — drivers leave a staging pad via the main
-      // pad's Wave Done hand-off, so Dispatch All / Wave Done don't belong here.
+      // One-press action: "Dispatch + Wave Done" sends the loaded drivers AND
+      // advances the wave (with hand-off), so the operator never hits two buttons.
+      // Overflow ('late') pads and idle pads keep a plain Dispatch All.
       let actionsHtml = `<button class="btn-small" onclick="clearPad(${pad.id})">Clear</button>`;
       if (pad.role !== 'stage') {
-        actionsHtml += `<button class="btn-small" onclick="dispatchAll(${pad.id})">Dispatch All</button>`;
-        if (pad.waveIdx !== null) {
-          actionsHtml += `<button class="btn-small" onclick="advanceWave(${pad.id})">Wave Done →</button>`;
+        if (pad.role === 'late') {
+          actionsHtml += `<button class="btn-small" onclick="dispatchAll(${pad.id})">Dispatch All</button>`;
+        } else if (pad.waveIdx !== null) {
+          actionsHtml += `<button class="btn-small" onclick="advanceWave(${pad.id})" title="Dispatch all loaded drivers and move to the next wave">Dispatch + Wave Done →</button>`;
+        } else {
+          actionsHtml += `<button class="btn-small" onclick="dispatchAll(${pad.id})">Dispatch All</button>`;
         }
       }
 
