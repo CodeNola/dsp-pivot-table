@@ -1396,19 +1396,41 @@
     if (!displayMode) return;
     const el = document.getElementById('dashboard');
     if (!el || el.classList.contains('hidden')) return;
-    // Lay out at the fixed design width, measure, then scale to fit the viewport.
+    const vw = window.innerWidth, vh = window.innerHeight;
+
     el.style.position = 'absolute';
     el.style.left = '0'; el.style.top = '0';
-    el.style.transform = 'none';
-    el.style.width = DISPLAY_W + 'px';
-    const naturalH = el.scrollHeight;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const scale = Math.min(vw / DISPLAY_W, vh / naturalH);
     el.style.transformOrigin = 'top left';
-    el.style.transform = 'scale(' + scale + ')';
-    // Center the scaled board on screen.
-    el.style.left = Math.max(0, (vw - DISPLAY_W * scale) / 2) + 'px';
-    el.style.top  = Math.max(0, (vh - naturalH * scale) / 2) + 'px';
+    el.style.transform = 'none';
+
+    // Fill the WHOLE screen. The board's height depends on how wide we lay it
+    // out (slots reflow into more columns as it gets wider), so we try a range of
+    // design widths, measure the height each gives, and keep the one that lets
+    // the board scale up the most while still fitting — i.e. the biggest board
+    // that fills the screen. This uses the full height on wide/tall TVs instead
+    // of leaving an empty band.
+    let best = null;
+    const measure = (w) => {
+      el.style.width = w + 'px';
+      const h = el.scrollHeight;
+      const scale = Math.min(vw / w, vh / h);   // largest size that still fits
+      return { w, h, scale };
+    };
+    for (let w = 1100; w <= 3800; w += 220) {           // coarse pass
+      const m = measure(w);
+      if (!best || m.scale > best.scale) best = m;
+    }
+    const c = best.w;                                   // refine around the winner
+    for (let w = Math.max(1000, c - 220); w <= c + 220; w += 55) {
+      const m = measure(w);
+      if (m.scale > best.scale) best = m;
+    }
+
+    el.style.width = best.w + 'px';
+    el.style.transform = 'scale(' + best.scale + ')';
+    // Center whatever margin is left (usually tiny once it fills the screen).
+    el.style.left = Math.max(0, (vw - best.w * best.scale) / 2) + 'px';
+    el.style.top  = Math.max(0, (vh - best.h * best.scale) / 2) + 'px';
   }
   window.addEventListener('resize', fitDisplay);
 
