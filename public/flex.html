@@ -1033,11 +1033,36 @@
   }
 
   // Label shown on the clickable status strip for each slot state.
-  function slotStatusLabel(state, i) {
+  // `lane` is the physical lane number (column position), passed in by the caller.
+  function slotStatusLabel(state, lane) {
     if (state === 'loading') return 'LOAD';       // amber — currently loading
     if (state === 'dispatched') return '✓';       // green — out on time
     if (state === 'late') return '✗';             // red — out late
-    return '#' + (i + 1);                          // grey — empty (shows slot number)
+    return '#' + lane;                            // grey — empty (shows lane number)
+  }
+
+  // After the board is laid out, set each EMPTY slot's label to its lane number
+  // (column position, 1..cols per row). Fixed grids use their column count; 'auto'
+  // grids read the actual rendered columns, so lanes stay correct even when the
+  // layout reflows (e.g. on a TV in Display mode).
+  function relabelLanes() {
+    document.querySelectorAll('#padsGrid .pad').forEach(card => {
+      const pad = getPad(+card.dataset.padId);
+      if (!pad) return;
+      const grid = card.querySelector('.slots-grid');
+      if (!grid) return;
+      let cols = (pad.slotCols && pad.slotCols !== 'auto') ? pad.slotCols : 0;
+      if (!cols) {
+        const tpl = getComputedStyle(grid).gridTemplateColumns || '';
+        cols = tpl.split(' ').filter(Boolean).length || 1;
+      }
+      grid.querySelectorAll('.slot').forEach((slotEl, idx) => {
+        if (pad.slots[idx] === 'empty') {
+          const strip = slotEl.querySelector('.slot-status');
+          if (strip) strip.textContent = '#' + ((idx % cols) + 1);
+        }
+      });
+    });
   }
 
   // [EDIT:STAGE-PREFIX] Force the stage value to always begin with "STG." — the
@@ -1437,7 +1462,7 @@
       el.style.left = '0'; el.style.top = '0';
     }
   }
-  window.addEventListener('resize', fitDisplay);
+  window.addEventListener('resize', () => { fitDisplay(); relabelLanes(); });
 
   // Live indicator in the header.
   function setLive(mode) {
@@ -2272,6 +2297,7 @@
     updateStats();
     saveState();
     if (displayMode) fitDisplay();   // keep the TV view fitted as content changes
+    relabelLanes();                  // number lanes by column position
   }
 
   const ROLE_OPTS = [
@@ -2410,7 +2436,12 @@
       } else {
         slotsDiv.style.gridTemplateColumns = '';   // responsive reflow
       }
+      // Lane numbering: number by column position (1..cols per row, restarting
+      // each row) driven by the grid's first number. Fixed grid → known now;
+      // 'auto' uses a placeholder and is corrected by relabelLanes() after layout.
+      const padColCount = (pad.slotCols && pad.slotCols !== 'auto') ? pad.slotCols : null;
       pad.slots.forEach((state, i) => {
+        const lane = padColCount ? ((i % padColCount) + 1) : (i + 1);
         // --- the slot cell ---------------------------------------------------
         const slot = document.createElement('div');
         slot.className = `slot ${state}`;          // state drives the strip color via CSS
@@ -2418,7 +2449,7 @@
         // --- status strip (click to cycle the slot's state) ------------------
         const status = document.createElement('div');
         status.className = 'slot-status';
-        status.textContent = slotStatusLabel(state, i);
+        status.textContent = slotStatusLabel(state, lane);
         status.title = 'Click: empty → loading → dispatched / late → empty';
         status.onclick = () => cycleSlot(pad.id, i);  // cycleSlot re-renders + saves
 
@@ -2452,7 +2483,7 @@
           pad.routes[i] = e.target.value;
           if (autoFillSlot(pad, i)) {              // typing a number fills the slot
             slot.className = `slot ${pad.slots[i]}`;
-            status.textContent = slotStatusLabel(pad.slots[i], i);
+            status.textContent = slotStatusLabel(pad.slots[i], lane);
           }
           updatePadFillDisplays(pad, card);
           saveState();
@@ -2494,7 +2525,7 @@
           pad.stageAuto[i] = false;   // typed by hand → never auto-overwrite it
           if (autoFillSlot(pad, i)) {
             slot.className = `slot ${pad.slots[i]}`;
-            status.textContent = slotStatusLabel(pad.slots[i], i);
+            status.textContent = slotStatusLabel(pad.slots[i], lane);
           }
           updatePadFillDisplays(pad, card);
           saveState();
