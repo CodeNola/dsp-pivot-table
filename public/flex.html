@@ -1955,14 +1955,21 @@
     const pad = getPad(padId);
     if (!pad || pad.waveIdx === null) return;
     const current = pad.slots[slotIdx];
-    const past = isPastDeadline(pad);
 
+    // Manual cycle — YOU decide the outcome, because a driver can leave on time
+    // even if it's now past the wave's cutoff. One click after loading marks it
+    // dispatched (green / on-time); click again only if it was actually late.
+    //   empty -> loading -> dispatched -> late -> empty
+    // (The bulk "Dispatch All" / "Dispatch + Wave Done" buttons still decide
+    //  on-time vs late automatically from the deadline — see dispatchAll.)
     if (current === 'empty') {
       pad.slots[slotIdx] = 'loading';
     } else if (current === 'loading') {
-      pad.slots[slotIdx] = past ? 'late' : 'dispatched';
+      pad.slots[slotIdx] = 'dispatched';   // green ✓ — out on time
+    } else if (current === 'dispatched') {
+      pad.slots[slotIdx] = 'late';         // red ✗ — override to late
     } else {
-      pad.slots[slotIdx] = 'empty';
+      pad.slots[slotIdx] = 'empty';        // late -> empty
     }
     renderEverything();
   }
@@ -2450,7 +2457,7 @@
         const status = document.createElement('div');
         status.className = 'slot-status';
         status.textContent = slotStatusLabel(state, lane);
-        status.title = 'Click: empty → loading → dispatched / late → empty';
+        status.title = 'Click: empty → loading → dispatched (on time) → late → empty';
         status.onclick = () => cycleSlot(pad.id, i);  // cycleSlot re-renders + saves
 
         // --- Route: a TYPE dropdown + a NUMBER field ------------------------

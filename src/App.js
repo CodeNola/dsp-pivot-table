@@ -2,10 +2,10 @@
   Analytics Hub - Created by Olatunji Eniola
   Combined platform: Concessions Analytics + Late Delivery Deep Dive
 */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
 import _ from 'lodash';
-import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown, LayoutGrid, ShieldCheck, Target, Truck } from 'lucide-react';
+import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown, LayoutGrid, ShieldCheck, Target, Truck, Zap } from 'lucide-react';
 import { WATCHTOWER_HTML_B64, WWSC_HTML_B64 } from './dashboards';
 
 // ============================================================
@@ -106,6 +106,40 @@ const PLATFORM_CONFIGS = {
     scanDistanceSearch: ['scan distance', 'scan_distance', 'distance'],
     concessionDateSearch: ['concession date', 'concession_date'],
     deliveryDateSearch: ['delivery date', 'delivery_date', 'actual delivery'],
+    // extra columns used by One-Click preset views:
+    trackingIdColumn: ['tracking id', 'tracking_id', 'trackingid', 'tracking'],
+    propertyTypeColumn: ['property type', 'property_type', 'propertytype', 'address type', 'address_type', 'location type', 'dwelling type'],
+    /*
+     * PRESET VIEWS — the "One-Click Views" buttons.
+     * Each entry builds a whole pivot in one click, then you can still tweak it.
+     *   rowField / col : a config key above (e.g. 'transporterColumn') OR a literal
+     *                    column name / list of names. It's resolved against the file.
+     *   agg            : count | sum | average | min | max | value
+     *   compareWeeks   : N  -> side-by-side of the N most recent weeks (latest first)
+     *                    0/omit -> a normal (non-comparison) pivot
+     *   filters        : [{ col, value }]  e.g. property type = House
+     *   weekFilter     : 'highest' -> filter to the single most recent week
+     *   threshold      : number -> sets the yellow highlight (blank = no highlight)
+     * TO ADD YOUR OWN: copy any object below and change the fields.
+     */
+    presets: [
+      { label: 'General View',
+        rowField: 'transporterColumn',
+        valueFields: [{ col: 'trackingIdColumn', agg: 'count' }],
+        compareWeeks: 2, threshold: 3 },
+      { label: 'House Delivery',
+        rowField: 'subBucketColumn',
+        valueFields: [{ col: 'trackingIdColumn', agg: 'count' }, { col: 'scanDistanceSearch', agg: 'average' }],
+        compareWeeks: 2, filters: [{ col: 'propertyTypeColumn', value: 'House' }] },
+      { label: 'Apartment Delivery',
+        rowField: 'subBucketColumn',
+        valueFields: [{ col: 'trackingIdColumn', agg: 'count' }, { col: 'scanDistanceSearch', agg: 'average' }],
+        compareWeeks: 2, filters: [{ col: 'propertyTypeColumn', value: 'Apartment' }] },
+      { label: 'House Delivery Misses',
+        rowField: 'transporterColumn',
+        valueFields: [{ col: 'trackingIdColumn', agg: 'value' }, { col: 'scanDistanceSearch', agg: 'sum' }],
+        compareWeeks: 0, weekFilter: 'highest', filters: [{ col: 'propertyTypeColumn', value: 'House' }] },
+    ],
   },
   lateDelivery: {
     id: 'lateDelivery',
@@ -124,6 +158,16 @@ const PLATFORM_CONFIGS = {
     scanDistanceSearch: ['scan distance', 'scan_distance'],
     concessionDateSearch: ['concession_creation_date', 'concession date', 'concession_date'],
     deliveryDateSearch: ['actual_delivery_date', 'actual delivery date', 'delivery date', 'delivery_date'],
+    // extra columns used by One-Click preset views:
+    trackingIdColumn: ['tracking id', 'tracking_id', 'trackingid', 'tracking'],
+    propertyTypeColumn: ['property type', 'property_type', 'propertytype', 'lt_attempt_property_type', 'address type', 'address_type', 'location type'],
+    // PRESET VIEWS — see the concessions config above for the full field guide.
+    presets: [
+      { label: 'General View',
+        rowField: 'transporterColumn',
+        valueFields: [{ col: 'trackingIdColumn', agg: 'count' }, { col: 'subBucketColumn', agg: 'value' }],
+        compareWeeks: 2 },
+    ],
   }
 };
 
@@ -162,6 +206,9 @@ function PivotPlatform({ config, onBack }) {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [expandedRows, setExpandedRows] = useState({});
   const [showManagerView, setShowManagerView] = useState(false);
+  // One-Click preset views: which preset is active, and a flag to run it after state settles.
+  const [activePreset, setActivePreset] = useState(null);
+  const [presetToRun, setPresetToRun] = useState(false);
 
   /*
    * transporterNames: maps a normalized transporter ID -> DA/driver name.
@@ -413,6 +460,114 @@ function PivotPlatform({ config, onBack }) {
       setError('Error creating pivot tables: ' + err.message);
     }
   };
+
+  // ============================================================
+  // ONE-CLICK PRESET VIEWS
+  // Builds a full pivot (row field, value fields, comparison, filters,
+  // threshold) from a preset object, then generates it. Manual controls are
+  // untouched — a preset just fills them in for you.
+  // ============================================================
+
+  // Resolve a preset's column spec to a real column in the loaded file.
+  // spec can be a config key ('transporterColumn'), a literal name, or a list.
+  const resolvePresetCol = (spec) => {
+    if (!spec) return null;
+    if (Array.isArray(spec)) return findColumn(spec);
+    if (typeof spec === 'string') {
+      if (config[spec]) return findColumn(config[spec]);   // it's a config key
+      return findColumn([spec]);                            // it's a literal column name
+    }
+    return null;
+  };
+
+  // Weeks, most-recent first. Handles "2025-35", "35", "Wk 34", etc.
+  const weeksDescending = (weekCol) => {
+    const vals = (availableValues[weekCol] || []).slice();
+    vals.sort((a, b) => {
+      const na = parseInt(String(a).replace(/\D/g, ''), 10);
+      const nb = parseInt(String(b).replace(/\D/g, ''), 10);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return nb - na;
+      return String(b).localeCompare(String(a));
+    });
+    return vals;
+  };
+
+  // Match a target filter value (e.g. "House") to the file's actual value,
+  // case-insensitively, so casing differences still filter correctly.
+  const resolvePresetValue = (col, target) => {
+    const vals = availableValues[col] || [];
+    const exact = vals.find(v => String(v).toLowerCase() === String(target).toLowerCase());
+    if (exact !== undefined) return exact;
+    const partial = vals.find(v => String(v).toLowerCase().includes(String(target).toLowerCase()));
+    return partial !== undefined ? partial : target;
+  };
+
+  const applyPreset = (preset) => {
+    if (data.length === 0) { setError('Load a file first, then pick a view.'); return; }
+
+    const rowField = resolvePresetCol(preset.rowField);
+    if (!rowField) {
+      const want = Array.isArray(preset.rowField) ? preset.rowField[0] : preset.rowField;
+      setError(`"${preset.label}" needs a ${want} column, which isn't in this file.`);
+      return;
+    }
+
+    // Value fields (skip any whose column isn't in the file).
+    const valueFields = [];
+    (preset.valueFields || []).forEach(vf => {
+      const f = resolvePresetCol(vf.col);
+      if (f) valueFields.push({ field: f, aggregation: vf.agg || 'count', showActualValues: vf.agg === 'value' });
+    });
+    if (valueFields.length === 0) valueFields.push({ field: '', aggregation: 'count', showActualValues: false });
+
+    // Filters (e.g. property type = House).
+    const filters = {};
+    (preset.filters || []).forEach(fl => {
+      const c = resolvePresetCol(fl.col);
+      if (c) filters[c] = resolvePresetValue(c, fl.value);
+    });
+
+    // Week comparison (side-by-side) and/or single-week filter.
+    const weekCol = resolvePresetCol('weekColumn');
+    let compareField = '', compareValues = [];
+    if (preset.compareWeeks && weekCol) {
+      compareValues = weeksDescending(weekCol).slice(0, preset.compareWeeks); // [latest, previous, ...]
+      compareField = compareValues.length ? weekCol : '';
+    }
+    if (preset.weekFilter === 'highest' && weekCol) {
+      const weeks = weeksDescending(weekCol);
+      if (weeks.length) filters[weekCol] = weeks[0];
+    }
+
+    setPivotConfig(prev => ({ ...prev, rowField, subRowField: '', valueFields, filters, compareField, compareValues }));
+
+    // Threshold / highlight (General View sets 3; others clear it).
+    if (preset.threshold !== undefined && preset.threshold !== null) {
+      setHighlightConfig({ condition: 'greater', value: String(preset.threshold), color: 'yellow' });
+    } else {
+      setHighlightConfig(prev => ({ ...prev, value: '' }));
+    }
+
+    // Truly one-click: if no DSP is chosen yet, select all so it renders immediately.
+    if (selectedDSPs.length === 0 && dspCol && availableValues[dspCol]) {
+      setSelectedDSPs(availableValues[dspCol]);
+    }
+
+    setActivePreset(preset.label);
+    setError('');
+    setPresetToRun(true);   // the effect below runs createPivotTables once state has updated
+  };
+
+  // Run the pivot AFTER the preset's state changes are applied (so createPivotTables
+  // sees the new config), then reset the flag.
+  useEffect(() => {
+    if (presetToRun) {
+      createPivotTables();
+      setPresetToRun(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetToRun, pivotConfig, selectedDSPs, highlightConfig]);
+
 
   // Highlighting
   const shouldHighlightYellow = (value) => {
@@ -1157,6 +1312,25 @@ function PivotPlatform({ config, onBack }) {
                 <button key={dsp} onClick={() => toggleDSP(dsp)}
                   className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${selectedDSPs.includes(dsp) ? `${accentBg} text-white shadow-lg` : 'bg-slate-700 text-gray-300 hover:bg-slate-600'}`}>
                   {dsp}{selectedDSPs.includes(dsp) && <X className="inline-block ml-2 w-4 h-4" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* One-Click Views (presets) */}
+        {data.length > 0 && config.presets && config.presets.length > 0 && (
+          <div className="bg-slate-900 rounded-xl shadow-lg p-6 mb-6 border border-slate-700">
+            <div className="flex items-center gap-2 mb-1">
+              <Zap className={`w-5 h-5 ${accentText}`} />
+              <h2 className={`text-xl font-bold ${accentText}`}>One-Click Views</h2>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">Instantly build a preset pivot for your emails — grab your snip and go. You can still tweak anything below afterward.</p>
+            <div className="flex flex-wrap gap-2">
+              {config.presets.map((preset) => (
+                <button key={preset.label} onClick={() => applyPreset(preset)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${activePreset === preset.label ? `bg-gradient-to-r ${accentGradient} text-white shadow-lg` : 'bg-slate-800 text-gray-200 border border-slate-600 hover:border-slate-400'}`}>
+                  {preset.label}
                 </button>
               ))}
             </div>
