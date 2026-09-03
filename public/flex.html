@@ -1512,6 +1512,26 @@
   }
 
   // ---- Polling: pull in other people's changes ----
+  // Protect in-progress work: when someone is actively clicking/typing on the
+  // board, we briefly hold off adopting other screens' changes, and we never let
+  // an adopt overwrite the pad they're currently working on. This stops slots from
+  // flipping ("auto-loading") under your hand while another screen updates.
+  let lastInteractionAt = 0;
+  let activePadId = null;
+  const INTERACTION_COOLDOWN_MS = 2500;  // after a click/keystroke, don't adopt for this long
+  const ACTIVE_PAD_KEEP_MS = 15000;      // keep YOUR working pad on adopt for this long
+  function noteInteraction(e) {
+    lastInteractionAt = Date.now();
+    const t = e && e.target;
+    const card = t && t.closest && t.closest('#dashboard .pad');
+    if (card && card.dataset && card.dataset.padId) activePadId = +card.dataset.padId;
+  }
+  ['click', 'input', 'change', 'keydown'].forEach(ev =>
+    document.addEventListener(ev, (e) => {
+      if (e.target && e.target.closest && e.target.closest('#dashboard')) noteInteraction(e);
+    }, true)
+  );
+
   function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 1500); }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
@@ -1541,12 +1561,26 @@
     // commits against stale pads — the drivers don't move and waves jump.
     const cf = document.getElementById('confirmOverlay');
     if (cf && !cf.classList.contains('hidden')) return;
+    // Just clicked/typed on the board? Hold off rebuilding for a moment so a slot
+    // can't flip under your hand mid-click.
+    if (Date.now() - lastInteractionAt < INTERACTION_COOLDOWN_MS) return;
     // A "cleared" marker (or any empty board) = someone reset it → clear too.
     if (state._cleared || !state.pads || !state.pads.length) {
       serverTs = incomingTs;               // remember we've seen this clear
       localTs = Math.max(localTs, incomingTs);
       if (pads.length) resetToSetupLocal();
       return;
+    }
+    // Keep the pad this operator is actively working on. Other screens save the
+    // WHOLE board, so adopting their update could otherwise overwrite your pad with
+    // their slightly-older copy of it — flipping your slots. Swap your live pad
+    // back into the incoming state before adopting the rest.
+    if (activePadId != null && (Date.now() - lastInteractionAt) < ACTIVE_PAD_KEEP_MS && Array.isArray(state.pads)) {
+      const localPad = getPad(activePadId);
+      const idx = state.pads.findIndex(p => p.id === activePadId);
+      if (localPad && idx !== -1) {
+        try { state.pads[idx] = JSON.parse(JSON.stringify(localPad)); } catch (e) {}
+      }
     }
     applyState(state);                     // adopt the newer shared state
   }
