@@ -724,6 +724,29 @@
   // fields both read from this one list, so this is the only place to change.
   const ROUTE_TYPES = ['CX', 'AX', 'AV', 'AT', 'RV', 'VT', 'SA', 'SB', 'SV', 'RX', 'RT'];
 
+  // [EDIT:DEFAULT-LAYOUT] The pad layout a NEW board starts with, so operators can
+  // just press Start Loading when ready (they can still change roles/feeds after).
+  //   role : 'main' (Main Load) | 'late' (Late / Overflow) | 'stage' (Next Wave
+  //          Staging) | 'extra' (Extra / Flex)
+  //   feeds: the NAME of the pad this one hands off to (a staging pad should feed
+  //          the main pad it stages for), or null for independent.
+  // Boards not listed in BOARD_LAYOUTS use DEFAULT_LAYOUT.
+  const DEFAULT_LAYOUT = [
+    { name: 'PAD 1', role: 'main', feeds: null },
+    { name: 'PAD 2', role: 'main', feeds: null },
+    { name: 'PAD 3', role: 'main', feeds: null },
+  ];
+
+  // [EDIT:BOARD-LAYOUTS] Per-station starting layouts. The KEY is the board name
+  // (uppercase). Copy the DTU8 block and change the key to preset another station.
+  const BOARD_LAYOUTS = {
+    DTU8: [
+      { name: 'PAD 1', role: 'late',  feeds: null },      // Late / Overflow, independent
+      { name: 'PAD 2', role: 'main',  feeds: null },      // Main Load, independent
+      { name: 'PAD 3', role: 'stage', feeds: 'PAD 2' },   // Next Wave Staging → feeds PAD 2
+    ],
+  };
+
   // Build the <option> tags for a route-type <select>, marking `selected` the
   // one that matches `current` (falls back to the first type).
   function routeTypeOptions(current) {
@@ -1140,7 +1163,9 @@
     if (!pad || pad.feedsInto === null) return;
     const target = getPad(pad.feedsInto);
     if (!target || target.waveIdx === null) return;
-    if (pad.slots.some(s => s !== 'empty')) return; // don't lose staged drivers
+    // Park the feeder one wave ahead of the pad it feeds. This only sets the
+    // wave LABEL — it never touches the staged drivers, so it's safe to run even
+    // when the feeder already has drivers loaded.
     const ahead = target.waveIdx + 1;
     pad.waveIdx = (ahead < waves.length) ? ahead : null;
   }
@@ -1228,7 +1253,15 @@
     saveState();
   }
 
+  // When true, saveState/saveNow do nothing. Set while ADOPTING a shared state
+  // (so a client that just pulled someone else's change doesn't immediately push
+  // it back and clobber a newer change), and always on for a read-only Display TV.
+  let squelchSave = false;
+
   function saveState() {
+    // A Display (TV) screen is read-only — it must NEVER write, or it would keep
+    // pushing its slightly-stale view back and undo other people's changes.
+    if (displayMode || squelchSave) return;
     // Save the whole board: local cache (instant) + shared server (debounced).
     if (!pads.length) return;             // nothing to save until a pad exists
     localTs = Date.now();
@@ -1240,6 +1273,7 @@
   // Save right now, bypassing the debounce — used for important one-off changes
   // (like loading the staging file) so a quick refresh can't lose them.
   function saveNow() {
+    if (displayMode || squelchSave) return;
     localTs = Date.now();
     const blob = buildStateBlob();
     try { localStorage.setItem(localKey(), JSON.stringify(blob)); } catch (e) {}
@@ -1252,7 +1286,7 @@
     if (!BOARD) return;
     setLive('saving');
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => serverSave(blob), 500);
+    saveTimer = setTimeout(() => serverSave(blob), 200);
   }
 
   async function serverSave(blob) {
@@ -1326,7 +1360,11 @@
     document.getElementById('padInfo').textContent =
       `${config.totalRoutes} ROUTES • ${totalDrivers} DRIVERS${totalShort > 0 ? ' • ⚠ SHORT '+totalShort : ''} • ${waves.length} WAVES • GOAL ${config.goalPct}%`;
 
-    renderEverything();
+    // Render the adopted state WITHOUT saving it back (that would bounce a change
+    // we just received back to the server with a fresh timestamp and could clobber
+    // a newer edit from another screen).
+    squelchSave = true;
+    try { renderEverything(); } finally { squelchSave = false; }
     startClock();
     pads.forEach(p => { if (!('timerStartedAt' in p)) p.timerStartedAt = null; });
     if (pads.some(p => p.timerStartedAt)) {
@@ -1474,7 +1512,7 @@
   }
 
   // ---- Polling: pull in other people's changes ----
-  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 3500); }
+  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 1500); }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
   async function pollServer() {
@@ -1498,6 +1536,11 @@
     const ae = document.activeElement;
     if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT') &&
         ae.closest && ae.closest('#dashboard')) return;
+    // Don't adopt while a confirm dialog is open (e.g. "Dispatch + Wave Done").
+    // Otherwise the board rebuilds underneath the dialog and the pending action
+    // commits against stale pads — the drivers don't move and waves jump.
+    const cf = document.getElementById('confirmOverlay');
+    if (cf && !cf.classList.contains('hidden')) return;
     // A "cleared" marker (or any empty board) = someone reset it → clear too.
     if (state._cleared || !state.pads || !state.pads.length) {
       serverTs = incomingTs;               // remember we've seen this clear
@@ -1677,18 +1720,24 @@
       delete w.completedAt; delete w.completedClock;
     });
 
-    // Build the default three-pad layout: three INDEPENDENT main-load pads,
-    // each sized to routes-per-wave and all running the current wave (wave 0).
-    // No feeding between them — each runs its own loading/dispatch timer.
+    // Build the starting pad layout. Boards listed in BOARD_LAYOUTS get their
+    // preset (e.g. DTU8 comes up as Late / Main / Staging→Main); everyone else
+    // gets DEFAULT_LAYOUT (three independent main pads). Operators can change any
+    // of it afterward.
     const cap = config.routesPerWave;
     nextPadId = 1;
-    pads = [
-      makePad('PAD 1', 'main', cap, 0),
-      makePad('PAD 2', 'main', cap, 0),
-      makePad('PAD 3', 'main', cap, 0)
-    ];
-    // All independent by default (no hand-off between pads).
-    pads.forEach(p => { p.feedsInto = null; });
+    const layout = BOARD_LAYOUTS[(BOARD || '').toUpperCase()] || DEFAULT_LAYOUT;
+    pads = layout.map(spec => makePad(spec.name, spec.role, cap, 0));
+    pads.forEach(p => { p.feedsInto = null; });   // start independent, then link below
+    // Resolve "feeds" (a pad NAME) to the target pad's id.
+    layout.forEach((spec, i) => {
+      if (spec.feeds) {
+        const tgt = pads.find(p => p.name === spec.feeds);
+        if (tgt && tgt.id !== pads[i].id) pads[i].feedsInto = tgt.id;
+      }
+    });
+    // Park any staging pad one wave ahead of the pad it feeds.
+    pads.forEach(p => { if (p.role === 'stage' && p.feedsInto != null) syncFeederWave(p); });
 
     document.getElementById('setup').classList.add('hidden');
     document.getElementById('dashboard').classList.remove('hidden');
@@ -2153,14 +2202,21 @@
   // pad feeds it (target.feedsInto points the OTHER way, so we look for a pad whose
   // feedsInto === target.id). The feeder then steps to the next wave in sequence.
   function advanceWave(targetId) {
-    const target = targetId ? getPad(targetId) : mainPad();
-    if (!target || target.waveIdx === null) return;
-    const feeder = feederOf(target.id);
+    const t0 = targetId ? getPad(targetId) : mainPad();
+    if (!t0 || t0.waveIdx === null) return;
+    targetId = t0.id;   // normalize to an id so we always re-resolve by id below
 
-    // The actual wave advance — runs only after any confirmations are accepted.
-    // newWaveIdx/feederHandsOff are computed once and passed in so the logic and
-    // ordering stay identical to before.
-    const commit = (newWaveIdx, feederHandsOff) => {
+    // The actual wave advance. Everything is re-resolved from CURRENT state here
+    // (not captured earlier), so an intervening sync can't make this act on stale
+    // pads. Runs only after the confirm is accepted.
+    const commit = () => {
+      const target = getPad(targetId);
+      if (!target || target.waveIdx === null) return;
+      const feeder = feederOf(targetId);
+      const nextIdx = target.waveIdx + 1;
+      const newWaveIdx = (nextIdx < waves.length) ? nextIdx : null;
+      const feederHandsOff = !!(feeder && newWaveIdx !== null && feeder.slots.some(s => s !== 'empty'));
+
       // One-press flow: send everything that's loaded, THEN advance. Loading
       // slots become dispatched (on time) or late (past the cutoff) — exactly
       // like Dispatch All — so the operator only needs this one button.
@@ -2194,9 +2250,9 @@
 
       // Step the target pad to its own next wave.
       target.waveIdx = newWaveIdx;
-      if (feederHandsOff) {
+      if (feederHandsOff && feeder) {
         // Carry the feeder's staged drivers — slot state, route TYPE, route
-        // number, and stage — onto the target pad, then fully clear the feeder.
+        // number, and stage — onto the target pad.
         const n = target.capacity;
         const S = Array(n).fill('empty');
         const T = Array(n).fill(target.routeType || ROUTE_TYPES[0]);
@@ -2210,17 +2266,20 @@
           G[i] = feeder.stages[i];
         }
         target.slots = S; target.routeTypes = T; target.routes = R; target.stages = G;
-      } else {
-        // No hand-off: target rolls forward empty (slots + text) so drivers load
-        // directly onto it.
-        resetPadEntries(target);
-      }
 
-      // Keep the feeder one wave ahead so the two pads never sit on the same wave.
-      if (feeder && newWaveIdx !== null && feeder.waveIdx === newWaveIdx) {
+        // The staged drivers have moved off the feeder — clear it and re-park it
+        // to stage the wave AFTER the one the target just entered. This is the
+        // only place the feeder is cleared, so drivers can't be duplicated or left
+        // behind. (Both done together, so the hand-off is atomic.)
+        resetPadEntries(feeder);
         const feederNext = newWaveIdx + 1;
         feeder.waveIdx = (feederNext < waves.length) ? feederNext : null;
-        resetPadEntries(feeder);   // staged drivers have moved off — clear it
+        ensureSlotArrays(feeder);
+      } else {
+        // No hand-off: target rolls forward empty (slots + text) so drivers load
+        // directly onto it. Keep any feeder parked one wave ahead of the new wave.
+        resetPadEntries(target);
+        if (feeder) syncFeederWave(feeder);
       }
 
       ensureSlotArrays(target);
@@ -2228,28 +2287,22 @@
       renderEverything();
     };
 
-    // Build the "wave done" message, confirm it (in-page), then commit.
+    // Build the "wave done" message from current state, confirm it, then commit.
     const confirmAndCommit = () => {
-      // This pad ALWAYS advances to its own next sequential wave. A feeder pad is
-      // optional: if it's staging exactly the next wave AND has drivers ready,
-      // those ride over; otherwise the pad rolls forward empty.
+      const target = getPad(targetId);
+      if (!target || target.waveIdx === null) return;
+      const feeder = feederOf(targetId);
       const nextIdx = target.waveIdx + 1;
       const newWaveIdx = (nextIdx < waves.length) ? nextIdx : null;
 
-      // Does the feeder actually have staged drivers for the wave we're entering?
-      const feederHandsOff = !!(
-        feeder &&
-        newWaveIdx !== null &&
-        feeder.waveIdx === newWaveIdx &&
-        feeder.slots.some(s => s !== 'empty')
-      );
-
+      // A staging pad only ever holds the ONE wave it feeds, so if it has drivers
+      // and feeds this pad, they belong on the wave we're entering. We do NOT
+      // require feeder.waveIdx to match — that bookkeeping could drift and strand
+      // drivers on staging while the pad advanced empty.
+      const feederHandsOff = !!(feeder && newWaveIdx !== null && feeder.slots.some(s => s !== 'empty'));
       const movingCount = feederHandsOff ? feeder.slots.filter(s => s !== 'empty').length : 0;
 
-      // Clear, count-based wording. "done" = drivers on this pad already marked
-      // dispatched or late (i.e. sent out this wave).
       const plural = n => (n === 1 ? '' : 's');
-      // Count everyone being sent this wave (loaded slots become dispatched on commit).
       const doneCount = target.slots.filter(s => s === 'dispatched' || s === 'late' || s === 'loading').length;
       const donePart = doneCount > 0
         ? `${doneCount} driver${plural(doneCount)} on ${target.name} ${doneCount === 1 ? 'is' : 'are'} done`
@@ -2259,11 +2312,9 @@
         : (newWaveIdx !== null
             ? `${donePart} — clear the pad and move to the next wave (W${waves[newWaveIdx].num})?`
             : `${donePart} — that was the last wave, clear the pad?`);
-      uiConfirm(msg, () => commit(newWaveIdx, feederHandsOff));
+      uiConfirm(msg, commit);
     };
 
-    // Loaded slots are dispatched inside commit (on time / late by the cutoff),
-    // so there's no separate "mark late" step — one confirm and go.
     confirmAndCommit();
   }
 
@@ -2362,10 +2413,18 @@
       // count that updates as slots are clicked.
       let timerHtml;
       if (pad.role === 'stage') {
-        const w = pad.waveIdx !== null ? waves[pad.waveIdx] : null;
+        const feedTarget = pad.feedsInto !== null ? getPad(pad.feedsInto) : null;
+        // The wave a staging pad holds = one ahead of the pad it feeds (when linked
+        // and that pad is on a wave); otherwise fall back to its own wave. Deriving
+        // it live keeps the label correct even if bookkeeping drifts.
+        let stagedIdx = pad.waveIdx;
+        if (feedTarget && feedTarget.waveIdx !== null) {
+          const ahead = feedTarget.waveIdx + 1;
+          stagedIdx = (ahead < waves.length) ? ahead : null;
+        }
+        const w = stagedIdx !== null ? waves[stagedIdx] : null;
         const need = w ? (w.effective || w.drivers || pad.capacity) : pad.capacity;
         const waveNum = w ? w.num : '—';
-        const feedTarget = pad.feedsInto !== null ? getPad(pad.feedsInto) : null;
         const handoff = feedTarget ? `ready to hand to ${feedTarget.name}` : `staged for next wave`;
         const remainTxt = filled < need ? `${need - filled} more to fill` : `full — ready`;
         timerHtml = `
