@@ -422,6 +422,17 @@
     content: '✓'; position: absolute; top: 6px; right: 10px;
     color: var(--accent); font-weight: 700;
   }
+  /* Move-mode: wave tiles become clickable targets. */
+  .wave.pickable { cursor: pointer; outline: 1px dashed var(--warn); outline-offset: 2px; opacity: 1; transition: transform .08s, box-shadow .12s; }
+  .wave.pickable:hover { transform: translateY(-2px); box-shadow: 0 0 0 2px var(--warn); background: var(--panel); }
+  .wave.pick-current { outline-style: solid; }
+  .btn-tiny {
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1px 7px; font-family: inherit; font-size: 10px;
+    cursor: pointer; margin-left: 6px; vertical-align: middle; transition: all .12s;
+  }
+  .btn-tiny:hover { border-color: var(--warn); color: var(--text); }
+  .btn-tiny.movewave-btn.active { background: var(--warn); color: #0a0e1a; border-color: var(--warn); font-weight: 700; }
   .wave-time {
     font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 2px;
   }
@@ -679,6 +690,7 @@
     <div class="card waves-card">
       <div class="card-label">▼ Wave Schedule
         <span class="reset-link" style="margin-left:14px;" onclick="resetPad()">⟲ reset pad</span>
+        <span id="moveWaveHint" style="margin-left:14px; color:var(--accent); font-weight:700; display:none;"></span>
       </div>
       <div class="waves-grid" id="wavesGrid"></div>
     </div>
@@ -996,6 +1008,7 @@
       name: name,
       role: role,
       capacity: capacity,
+      _mts: Date.now(),  // per-pad "last modified" — used to merge shared updates safely
       waveIdx: (waveIdx === undefined ? null : waveIdx),
       feedsInto: null,   // id of the pad this one feeds when that pad finishes a wave; null = independent
       timerStartedAt: null,  // ms timestamp when "Start Loading" was pressed on THIS pad; null = not started
@@ -1010,6 +1023,10 @@
   }
 
   function getPad(id) { return pads.find(p => p.id === id); }
+  // Mark a pad as just-edited on THIS screen. Used so the shared-state merge keeps
+  // the most recently edited copy of each pad (prevents a stale snapshot from
+  // clearing a pad someone just filled).
+  function touchPad(pad) { if (pad) pad._mts = Date.now(); }
 
   // ---- Slot route/stage helpers -------------------------------------------
   // Make sure a pad has a routeType plus routes[] and stages[] arrays sized to
@@ -1414,6 +1431,7 @@
     if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
     if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
     pads = []; waves = []; eventLog = []; config = {}; BOARD = null; serverTs = 0; localTs = 0;
+    stageMap = {}; stageMapV = 0;   // drop the loaded stage file so the next board starts fresh
     document.getElementById('dashboard').classList.add('hidden');
     document.getElementById('setup').classList.add('hidden');
     document.getElementById('boardGate').classList.remove('hidden');
@@ -1519,12 +1537,15 @@
   let lastInteractionAt = 0;
   let activePadId = null;
   const INTERACTION_COOLDOWN_MS = 2500;  // after a click/keystroke, don't adopt for this long
-  const ACTIVE_PAD_KEEP_MS = 15000;      // keep YOUR working pad on adopt for this long
   function noteInteraction(e) {
     lastInteractionAt = Date.now();
     const t = e && e.target;
     const card = t && t.closest && t.closest('#dashboard .pad');
-    if (card && card.dataset && card.dataset.padId) activePadId = +card.dataset.padId;
+    if (card && card.dataset && card.dataset.padId) {
+      activePadId = +card.dataset.padId;
+      const p = getPad(activePadId);
+      if (p) p._mts = Date.now();     // this pad was just edited on this screen
+    }
   }
   ['click', 'input', 'change', 'keydown'].forEach(ev =>
     document.addEventListener(ev, (e) => {
@@ -1571,18 +1592,27 @@
       if (pads.length) resetToSetupLocal();
       return;
     }
-    // Keep the pad this operator is actively working on. Other screens save the
-    // WHOLE board, so adopting their update could otherwise overwrite your pad with
-    // their slightly-older copy of it — flipping your slots. Swap your live pad
-    // back into the incoming state before adopting the rest.
-    if (activePadId != null && (Date.now() - lastInteractionAt) < ACTIVE_PAD_KEEP_MS && Array.isArray(state.pads)) {
-      const localPad = getPad(activePadId);
-      const idx = state.pads.findIndex(p => p.id === activePadId);
-      if (localPad && idx !== -1) {
-        try { state.pads[idx] = JSON.parse(JSON.stringify(localPad)); } catch (e) {}
-      }
+    // Per-pad merge: adopt the shared board, but for each pad keep whichever copy
+    // was edited most recently (by its own _mts timestamp). This is what stops an
+    // older snapshot from another screen from clearing a pad you just filled — the
+    // "it cleared then only brought part of it back" bug. A pad you edited more
+    // recently than the incoming copy is kept as-is; a pad someone else edited more
+    // recently is taken from the incoming state.
+    let keptLocalPad = false;
+    if (Array.isArray(state.pads)) {
+      state.pads = state.pads.map(pin => {
+        const ploc = getPad(pin.id);
+        if (ploc) {
+          const lm = ploc._mts || 0, im = pin._mts || 0;
+          if (lm > im) { keptLocalPad = true; try { return JSON.parse(JSON.stringify(ploc)); } catch (e) {} }
+        }
+        return pin;
+      });
     }
-    applyState(state);                     // adopt the newer shared state
+    applyState(state);                     // adopt the merged shared state
+    // If our merge kept a locally-newer pad, the server copy is now behind — push
+    // the merged union back so every screen converges to everyone's latest work.
+    if (keptLocalPad) saveNow();
   }
 
   // Export the CSV, then wipe THIS board's stored data (local + server). The tool
@@ -1800,6 +1830,7 @@
       const dnEl = document.getElementById('dayNotes'); if (dnEl) dnEl.value = ''; }
     pads = [];
     nextPadId = 1;
+    stageMap = {}; stageMapV = 0;   // a cleared board has no stage file — drop it too
     // NOTE: we deliberately DON'T zero serverTs/localTs here. Keeping them means
     // the computer that hit reset won't re-adopt its own just-deleted board in
     // the split second before the server delete lands. Remote clients still pick
@@ -2284,6 +2315,7 @@
 
       // Step the target pad to its own next wave.
       target.waveIdx = newWaveIdx;
+      touchPad(target);   // its slots/wave changed — mark it freshly edited
       if (feederHandsOff && feeder) {
         // Carry the feeder's staged drivers — slot state, route TYPE, route
         // number, and stage — onto the target pad.
@@ -2309,6 +2341,7 @@
         const feederNext = newWaveIdx + 1;
         feeder.waveIdx = (feederNext < waves.length) ? feederNext : null;
         ensureSlotArrays(feeder);
+        touchPad(feeder);   // feeder's slots were cleared/handed off — mark it edited
       } else {
         // No hand-off: target rolls forward empty (slots + text) so drivers load
         // directly onto it. Keep any feeder parked one wave ahead of the new wave.
@@ -2510,7 +2543,7 @@
           </label>
         </div>
         <div class="pad-meta">
-          <span>Wave: <strong>${waveTxt}</strong></span>
+          <span>Wave: <strong>${waveTxt}</strong>${pad.role !== 'stage' ? ` <button class="btn-tiny movewave-btn ${moveWavePadId === pad.id ? 'active' : ''}" onclick="beginMoveWave(${pad.id})" title="Move this pad to a different wave (keeps its loaded drivers)">${moveWavePadId === pad.id ? '✕ cancel' : '⤳ set wave'}</button>` : ''}</span>
           <span><strong class="pad-filled-count">${filled}</strong>/${pad.capacity}</span>
           <span>Grid: <strong>${gridShapeTxt}</strong></span>
         </div>
@@ -2935,9 +2968,54 @@
     }
   }
 
+  // ===== Move a pad to a chosen wave (fixes an accidental double "Wave Done"
+  // that skipped a wave). Two steps: click a pad's "set wave" button to arm it,
+  // then click a wave tile. The pad's loaded drivers come with it (label-level
+  // move only — it does not rewrite already-completed waves' totals). =====
+  let moveWavePadId = null;
+
+  function beginMoveWave(padId) {
+    // Toggle: clicking the armed pad's button again cancels.
+    moveWavePadId = (moveWavePadId === padId) ? null : padId;
+    renderEverything();
+  }
+
+  function pickWaveForPad(waveIdx) {
+    if (moveWavePadId === null) return;
+    const pad = getPad(moveWavePadId);
+    if (!pad) { moveWavePadId = null; renderEverything(); return; }
+    if (waveIdx < 0 || waveIdx >= waves.length) return;
+    const filled = pad.slots.filter(s => s !== 'empty').length;
+    const wNum = waves[waveIdx].num;
+    const msg = filled > 0
+      ? `Move ${pad.name} to W${wNum}? Its ${filled} loaded driver${filled === 1 ? '' : 's'} come with it.`
+      : `Move ${pad.name} to W${wNum}?`;
+    uiConfirm(msg, () => {
+      pad.waveIdx = waveIdx;
+      pad.timerStartedAt = null;              // re-base the loading timer to the new wave
+      touchPad(pad);
+      // Keep any staging pad that feeds this one parked a wave ahead.
+      const feeder = feederOf(pad.id);
+      if (feeder && feeder.role === 'stage') { syncFeederWave(feeder); touchPad(feeder); }
+      // If THIS pad is a staging pad, its wave is derived from what it feeds, so
+      // moving it manually just sets its own label.
+      recomputeWaveCounts();
+      moveWavePadId = null;
+      saveNow();                              // push immediately so other screens see it
+      renderEverything();
+    });
+    // Note: if they cancel the dialog, stay armed so they can pick another wave.
+  }
+
   function renderWaves() {
     const grid = document.getElementById('wavesGrid');
     grid.innerHTML = '';
+    const armedPad = moveWavePadId !== null ? getPad(moveWavePadId) : null;
+    const hint = document.getElementById('moveWaveHint');
+    if (hint) {
+      if (armedPad) { hint.style.display = ''; hint.textContent = `↳ Click a wave to move ${armedPad.name} there`; }
+      else { hint.style.display = 'none'; hint.textContent = ''; }
+    }
     waves.forEach((w, i) => {
       const totalMin = config.loadTime + config.dispatchTime;
       let [hh, mm] = w.deadline.split(':').map(Number);
@@ -2952,14 +3030,12 @@
       const sp = stagePad();
       const onMain  = mp && mp.waveIdx === i;
       const onStage = sp && sp.waveIdx === i;
-      div.className = `wave ${complete ? 'complete' : ''} ${onMain ? 'staged-pad2' : ''} ${onStage && !onMain ? 'staged-pad3' : ''}`;
-      // Slim view: just the wave number and its start → deadline. The current
-      // wave keeps its colored highlight; the driver/route counts and progress
-      // bar are dropped (that detail already lives on the pad itself).
+      div.className = `wave ${complete ? 'complete' : ''} ${onMain ? 'staged-pad2' : ''} ${onStage && !onMain ? 'staged-pad3' : ''} ${armedPad ? 'pickable' : ''} ${armedPad && armedPad.waveIdx === i ? 'pick-current' : ''}`;
       div.innerHTML = `
         <div class="wave-time">W${w.num}</div>
         <div class="wave-deadline">${releaseTime} → ${w.deadline}</div>
       `;
+      if (armedPad) div.onclick = () => pickWaveForPad(i);
       grid.appendChild(div);
     });
   }
