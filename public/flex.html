@@ -968,6 +968,7 @@
   // role: 'late' (overflow/stragglers), 'main' (current load), 'stage' (next wave), 'extra'
   let pads = [];
   let eventLog = [];   // chronological operational log: start/stop loading, dispatch, wave done (persisted)
+  let routeManifest = [];   // every route+stage dispatched today (persists after wave-done clears slots)
   let siteShift = '';  // optional label: site / shift / operator name (persisted, shown in export)
   let dayNotes = '';   // optional freeform notes for the day (persisted, shown in export)
   let nextPadId = 1;
@@ -1229,7 +1230,7 @@
   // The full state blob representing this board.
   function buildStateBlob() {
     return {
-      config: config, waves: waves, pads: pads, eventLog: eventLog,
+      config: config, waves: waves, pads: pads, eventLog: eventLog, routeManifest: routeManifest,
       siteShift: siteShift, dayNotes: dayNotes,
       nextPadId: nextPadId, padColumns: padColumns,
       stageMap: stageMap, stageMapV: stageMapV,
@@ -1259,6 +1260,27 @@
       action: action || '',
       detail: detail || ''
     });
+  }
+
+  // Record every dispatched/late route on a pad into the day-long manifest, so the
+  // export keeps them even after a wave-done clears the slots. De-dupes by slot so
+  // calling it twice for the same wave can't double-record.
+  function recordDispatched(pad) {
+    if (!pad || pad.waveIdx === null) return;
+    ensureSlotArrays(pad);
+    const wnum = waves[pad.waveIdx] ? waves[pad.waveIdx].num : '';
+    const now = Date.now();
+    const clock = new Date().toLocaleTimeString('en-US', { hour12: false });
+    for (let i = 0; i < pad.capacity; i++) {
+      const st = pad.slots[i];
+      if (st !== 'dispatched' && st !== 'late') continue;
+      const num = pad.routes[i] || '';
+      const route = num ? ((pad.routeTypes[i] || '') + num) : '';
+      const stage = pad.stages[i] || '';
+      const key = 'W' + wnum + '|' + pad.name + '|' + i + '|' + route;
+      if (routeManifest.some(e => e._k === key)) continue;   // already recorded this slot this wave
+      routeManifest.push({ _k: key, t: now, time: clock, wave: wnum, pad: pad.name, route: route, stage: stage, status: st });
+    }
   }
 
   // Pull the Site/Shift and Notes fields into state and persist them.
@@ -1348,6 +1370,19 @@
     config = state.config || {};
     waves = state.waves || [];
     eventLog = state.eventLog || [];
+    // Merge the day's route manifest from all screens (union, de-duplicated) so
+    // an end-of-day export has every route dispatched anywhere on the board.
+    {
+      const incoming = state.routeManifest || [];
+      const seen = new Set();
+      const merged = [];
+      [...routeManifest, ...incoming].forEach(e => {
+        if (!e) return;
+        const k = e.t + '|' + e.pad + '|' + e.route + '|' + e.status;
+        if (!seen.has(k)) { seen.add(k); merged.push(e); }
+      });
+      routeManifest = merged.sort((a, b) => (a.t || 0) - (b.t || 0));
+    }
     siteShift = state.siteShift || '';
     dayNotes = state.dayNotes || '';
     { const ssEl = document.getElementById('siteShift'); if (ssEl) ssEl.value = siteShift;
@@ -1430,7 +1465,7 @@
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }  // cancel any queued save
     if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
     if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
-    pads = []; waves = []; eventLog = []; config = {}; BOARD = null; serverTs = 0; localTs = 0;
+    pads = []; waves = []; eventLog = []; routeManifest = []; config = {}; BOARD = null; serverTs = 0; localTs = 0;
     stageMap = {}; stageMapV = 0;   // drop the loaded stage file so the next board starts fresh
     document.getElementById('dashboard').classList.add('hidden');
     document.getElementById('setup').classList.add('hidden');
@@ -1773,7 +1808,7 @@
       routeType: (document.getElementById('routeType') || {}).value || ROUTE_TYPES[0]
     };
 
-    eventLog = []; // fresh day — clear any prior log
+    eventLog = []; routeManifest = []; // fresh day — clear any prior log
     siteShift = ''; dayNotes = '';
     { const ssEl = document.getElementById('siteShift'); if (ssEl) ssEl.value = '';
       const dnEl = document.getElementById('dayNotes'); if (dnEl) dnEl.value = ''; }
@@ -1824,7 +1859,7 @@
     if (padTimerInterval) { clearInterval(padTimerInterval); padTimerInterval = null; }
     if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
     waves.forEach(w => { delete w.locked; delete w.loadingStartedAt; delete w.loadingStartedClock; delete w.completedAt; delete w.completedClock; });
-    eventLog = [];
+    eventLog = []; routeManifest = [];
     siteShift = ''; dayNotes = '';
     { const ssEl = document.getElementById('siteShift'); if (ssEl) ssEl.value = '';
       const dnEl = document.getElementById('dayNotes'); if (dnEl) dnEl.value = ''; }
@@ -2121,6 +2156,7 @@
     }
 
     logEvent('Dispatch All', pad.name, pad.waveIdx, `${onTimeCount} on time, ${lateCount} late`);
+    recordDispatched(pad);   // save these routes+stages into the day's manifest before any clear
 
     if (pad.role === 'late') {
       // Lock these dispatches into the wave totals so they survive when we clear the pad.
@@ -2289,6 +2325,7 @@
       for (let i = 0; i < target.capacity; i++) {
         if (target.slots[i] === 'loading') target.slots[i] = past ? 'late' : 'dispatched';
       }
+      recordDispatched(target);   // save this wave's routes+stages before the pad clears
       // New wave = new deadline, so reset this pad's loading timer.
       target.timerStartedAt = null;
       recomputeWaveCounts();
@@ -3233,11 +3270,24 @@
     });
     lines.push('');
 
-    // --- Pad Slots (route # + stage location) ---
-    lines.push(row(['PAD SLOTS']));
-    lines.push(row(['Pad','Slot','Route #','Stage Location','Status']));
+    // --- Route Manifest (every route + stage dispatched today, across all waves) ---
+    lines.push(row(['ROUTE MANIFEST (all routes dispatched today)']));
+    lines.push(row(['Wave','Pad','Route #','Stage Location','Status','Time']));
+    if (routeManifest.length) {
+      routeManifest.slice().sort((a,b) => (a.t||0) - (b.t||0)).forEach(e => {
+        lines.push(row(['W' + e.wave, e.pad, e.route, e.stage, e.status, e.time]));
+      });
+    } else {
+      lines.push(row(['(nothing dispatched yet)']));
+    }
+    lines.push('');
+
+    // --- Pad Slots (what's currently loaded on the pads right now) ---
+    lines.push(row(['PAD SLOTS (currently on the board)']));
+    lines.push(row(['Pad','Wave','Slot','Route #','Stage Location','Status']));
     pads.forEach(p => {
       ensureSlotArrays(p);
+      const wnum = p.waveIdx !== null && waves[p.waveIdx] ? ('W' + waves[p.waveIdx].num) : '—';
       p.slots.forEach((st, i) => {
         const num = p.routes[i] || '';
         const route = num ? ((p.routeTypes[i] || '') + num) : '';   // e.g. "AX134"
@@ -3247,7 +3297,7 @@
         const routeBlank = (num === '');
         const stageBlank = (stage === '' || stage === 'STG.');
         if (routeBlank && stageBlank && st === 'empty') return;
-        lines.push(row([p.name, i + 1, route, stage, st]));
+        lines.push(row([p.name, wnum, i + 1, route, stage, st]));
       });
     });
     lines.push('');
