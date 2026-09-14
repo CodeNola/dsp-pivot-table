@@ -619,7 +619,7 @@
         </label>
         <span class="board-badge" id="stageBadge" style="color:var(--good); border-color:var(--good);"></span>
         <button class="btn-small" onclick="exportCSV()" title="Download a CSV of the current day">⬇ Export CSV</button>
-        <button class="btn-small btn-danger-small" onclick="exportAndClear()" title="Download the CSV, then wipe this board's stored data">⬇ Export &amp; Clear</button>
+        <button class="btn-small btn-danger-small" onclick="endSession()" title="Export the CSV, clear this board for everyone, and stop the live sync until a new session is started">■ End Session</button>
         <button class="btn-small" onclick="enterDisplay()" title="Full-screen read-only view that auto-fits any TV/monitor">📺 Display</button>
         <div class="clock" id="clock">--:--:--</div>
       </div>
@@ -1692,9 +1692,13 @@
 
   // Export the CSV, then wipe THIS board's stored data (local + server). The tool
   // stays; only the data for this board name is deleted.
-  function exportAndClear() {
-    uiConfirm('Export the CSV and then permanently clear board "' + (BOARD || '') +
-              '"? This deletes its stored data for everyone on the link.', () => {
+  // End Session: export the CSV, clear this board for everyone, and STOP all live
+  // activity (polling, clock, timers) until someone starts a new session by opening
+  // a board again. switchBoard() below is what halts every timer and returns to the
+  // gate; opening a board restarts polling and the clock.
+  function endSession() {
+    uiConfirm('End the session for board "' + (BOARD || '') +
+              '"? This exports the CSV, clears the board for everyone, and stops the live sync until a new session is started.', () => {
       try { exportCSV(); } catch (e) {}
       const board = BOARD;
       const tomb = emptyTombstone();
@@ -1708,7 +1712,10 @@
           body: JSON.stringify({ type: 'state', board: board, state: tomb })
         }).then(() => serverReset(board)).catch(() => {});
       }
-      switchBoard();
+      switchBoard();       // stops polling + clock + all timers, returns to the gate
+      stopPolling();       // belt-and-suspenders: ensure the poll loop is fully stopped
+      const msg = document.getElementById('boardGateMsg');
+      if (msg) msg.textContent = 'Session ended. Enter a board name to start a new session.';
     });
   }
 
