@@ -1956,6 +1956,51 @@ function OTDTracker({ onBack }){
   const timersRef = React.useRef({});
   const loadTokenRef = React.useRef(0);
 
+  // --- Saved Days (subtle cleanup panel) + day stepper ---
+  const [savedDates, setSavedDates] = React.useState(null); // null = not loaded yet
+  const [showSaved, setShowSaved] = React.useState(false);
+  const [savedBusy, setSavedBusy] = React.useState(false);
+
+  // Move the selected date by n days (prev/next buttons).
+  const shiftDay = (n) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + n);
+    const iso = dt.getFullYear() + "-" +
+      String(dt.getMonth() + 1).padStart(2, "0") + "-" +
+      String(dt.getDate()).padStart(2, "0");
+    setDateStr(iso);
+  };
+
+  // Fetch the list of dates that currently have saved data.
+  const loadSavedDates = async () => {
+    setSavedBusy(true);
+    try {
+      const r = await fetch("/api/state?list=1", { cache: "no-store" });
+      const j = await r.json();
+      setSavedDates(Array.isArray(j.dates) ? j.dates.slice().sort().reverse() : []);
+    } catch (e) { setSavedDates([]); }
+    finally { setSavedBusy(false); }
+  };
+
+  // Toggle the panel; load the list the first time it's opened.
+  const toggleSaved = () => {
+    const next = !showSaved;
+    setShowSaved(next);
+    if (next) loadSavedDates();
+  };
+
+  // Delete one day's data (with confirm), then refresh the list.
+  const deleteSavedDate = async (d) => {
+    if (!window.confirm("Delete ALL saved data for " + d + " for everyone? This can't be undone.")) return;
+    setSavedBusy(true);
+    try {
+      await apiPost({ type: "delete", date: d });
+      if (d === dateStr) setData(otdFresh()); // clear the view if we're on that day
+      await loadSavedDates();
+    } catch (e) { setSavedBusy(false); }
+  };
+
   const apiGet = async (date) => {
     const r = await fetch("/api/state?date=" + encodeURIComponent(date), { cache:"no-store" });
     if (!r.ok) throw new Error("GET " + r.status);
@@ -2080,8 +2125,12 @@ function OTDTracker({ onBack }){
           </div>
           <div className="flex items-center gap-2">
             <label className="text-[11px] uppercase tracking-wide text-slate-500">Date</label>
+            <button onClick={() => shiftDay(-1)} title="Previous day"
+              className="w-8 h-8 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-sm font-bold leading-none">‹</button>
             <input type="date" value={dateStr} onChange={e => setDateStr(e.target.value)}
               className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-100" />
+            <button onClick={() => shiftDay(1)} title="Next day"
+              className="w-8 h-8 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-sm font-bold leading-none">›</button>
           </div>
           <button onClick={resetTimes} className="px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-semibold">Reset times</button>
           <button onClick={resetDay} className="px-3 py-2 rounded-lg border border-transparent text-slate-500 hover:bg-slate-800 hover:text-slate-200 text-xs font-semibold">Reset day</button>
@@ -2185,6 +2234,41 @@ function OTDTracker({ onBack }){
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-500/40 border border-amber-500"></span> 95–98%</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500/40 border border-red-500"></span> &lt; 95%</span>
           <span className="ml-auto">CPT &amp; Stage-by default times are pre-filled and stay unless changed · TOTAL &amp; OTD calculate automatically.</span>
+        </div>
+
+        {/* Saved Days — subtle cleanup panel (collapsed by default) */}
+        <div className="mt-3">
+          <button onClick={toggleSaved}
+            className="text-[11px] text-slate-600 hover:text-slate-300 transition-colors">
+            {showSaved ? "▾" : "▸"} Saved days{savedDates && !savedBusy ? " (" + savedDates.length + ")" : ""}
+          </button>
+          {showSaved && (
+            <div className="mt-2 rounded-lg border border-slate-800 bg-slate-900/40 p-2 max-w-md">
+              {savedBusy && <div className="text-[11px] text-slate-500 px-1 py-1">Loading…</div>}
+              {!savedBusy && savedDates && savedDates.length === 0 && (
+                <div className="text-[11px] text-slate-500 px-1 py-1">No saved days.</div>
+              )}
+              {!savedBusy && savedDates && savedDates.length > 0 && (
+                <div className="max-h-56 overflow-auto divide-y divide-slate-800/70">
+                  {savedDates.map(d => (
+                    <div key={d} className="flex items-center justify-between gap-3 py-1 px-1">
+                      <button onClick={() => { setDateStr(d); }}
+                        className={"text-xs font-mono " + (d === dateStr ? "text-emerald-300" : "text-slate-300 hover:text-white")}
+                        title="Open this day">
+                        {d}{d === dateStr ? "  ·  current" : ""}
+                      </button>
+                      <button onClick={() => deleteSavedDate(d)}
+                        className="text-[11px] text-slate-500 hover:text-red-400 px-2 py-0.5 rounded hover:bg-slate-800"
+                        title="Delete this day's data">
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="text-[10px] text-slate-600 px-1 pt-1.5">Days listed here still have data stored. Deleting frees that storage.</div>
+            </div>
+          )}
         </div>
       </div>
     </div>

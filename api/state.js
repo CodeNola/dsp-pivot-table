@@ -37,6 +37,25 @@ function safeDate(d) {
   return /^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d : null;
 }
 
+// List every date that currently has OTD data (keys "otd:<date>"). Uses SCAN so
+// it never blocks Redis, even with lots of keys.
+async function listDates(redis) {
+  const dates = [];
+  let cursor = "0";
+  do {
+    // node-redis v4 returns { cursor, keys }
+    const reply = await redis.scan(cursor, { MATCH: "otd:*", COUNT: 200 });
+    cursor = String(reply.cursor);
+    const keys = reply.keys || [];
+    for (const k of keys) {
+      const d = k.slice(4); // strip "otd:"
+      if (safeDate(d)) dates.push(d);
+    }
+  } while (cursor !== "0");
+  dates.sort();            // ascending YYYY-MM-DD
+  return dates;
+}
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -47,6 +66,11 @@ module.exports = async (req, res) => {
     const redis = await getClient();
 
     if (req.method === "GET") {
+      // ?list=1 -> return every date that has saved data (for the "Saved Days" panel).
+      if (req.query.list) {
+        const dates = await listDates(redis);
+        return res.status(200).json({ dates });
+      }
       const date = safeDate(req.query.date);
       if (!date) return res.status(400).json({ error: "bad date" });
       const map = await redis.hGetAll("otd:" + date); // { field: value, ... }
@@ -72,7 +96,8 @@ module.exports = async (req, res) => {
         await redis.hSet(key, "station:" + String(body.i), String(body.value ?? ""));
         return res.status(200).json({ ok: true });
       }
-      if (body.type === "reset") {
+      // "reset" and "delete" both wipe a day; kept as two names so either works.
+      if (body.type === "reset" || body.type === "delete") {
         await redis.del(key);
         return res.status(200).json({ ok: true });
       }
