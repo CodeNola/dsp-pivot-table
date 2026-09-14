@@ -1570,10 +1570,15 @@
   // an adopt overwrite the pad they're currently working on. This stops slots from
   // flipping ("auto-loading") under your hand while another screen updates.
   let lastInteractionAt = 0;
+  let lastActiveAt = 0;                  // last time this screen was in use (drives polling)
   let activePadId = null;
   const INTERACTION_COOLDOWN_MS = 2500;  // after a click/keystroke, don't adopt for this long
   function noteInteraction(e) {
+    // If polling had stopped because the screen was idle, wake it up right now so
+    // the person immediately sees the latest board before they start changing it.
+    const wasIdle = (Date.now() - lastActiveAt) >= POLL_IDLE_STOP_MS;
     lastInteractionAt = Date.now();
+    lastActiveAt = Date.now();
     const t = e && e.target;
     const card = t && t.closest && t.closest('#dashboard .pad');
     if (card && card.dataset && card.dataset.padId) {
@@ -1581,6 +1586,7 @@
       const p = getPad(activePadId);
       if (p) p._mts = Date.now();     // this pad was just edited on this screen
     }
+    if (wasIdle && BOARD) pollServer();
   }
   ['click', 'input', 'change', 'keydown'].forEach(ev =>
     document.addEventListener(ev, (e) => {
@@ -1588,11 +1594,45 @@
     }, true)
   );
 
-  function startPolling() { stopPolling(); pollTimer = setInterval(pollServer, 1500); }
+  // ---- Smart polling — saves server usage (Vercel free-tier invocations) ----
+  // A screen only polls the server when it's actually in use. If nobody clicks or
+  // types for a few minutes, or the tab is hidden / laptop asleep, polling STOPS
+  // (zero server calls). The moment someone interacts or returns to the tab, it
+  // does an immediate catch-up poll and resumes. A screen in Display (📺) mode
+  // keeps polling while it's on-screen, since a display is meant to stay live with
+  // nobody touching it.
+  const POLL_ACTIVE_MS = 2000;      // how often an in-use screen checks for changes
+  const POLL_IDLE_STOP_MS = 180000; // stop polling after this long with no interaction (3 min)
+  let lastPollAt = 0;
+
+  function shouldPoll() {
+    if (!BOARD) return false;
+    if (typeof document !== 'undefined' && document.hidden) return false;  // asleep / backgrounded
+    if (displayMode) return true;                                          // a live display always polls
+    return (Date.now() - lastActiveAt) < POLL_IDLE_STOP_MS;                // in use recently
+  }
+
+  function startPolling() {
+    stopPolling();
+    lastActiveAt = Date.now();   // opening/switching a board counts as "in use"
+    // A cheap 1s local tick (no server call). It only hits the server when the
+    // screen is actually in use, and at most every POLL_ACTIVE_MS.
+    pollTimer = setInterval(() => {
+      if (shouldPoll() && (Date.now() - lastPollAt) >= POLL_ACTIVE_MS) pollServer();
+    }, 1000);
+  }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+  // Instant wake-up: coming back to the tab (or the laptop waking) catches up now.
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && BOARD) { lastActiveAt = Date.now(); pollServer(); }
+    });
+  }
 
   async function pollServer() {
     if (!BOARD) return;
+    lastPollAt = Date.now();
     let state;
     try { state = await serverLoad(BOARD); }
     catch (e) { setLive('offline'); return; }
