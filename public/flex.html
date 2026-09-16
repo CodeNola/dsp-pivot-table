@@ -690,6 +690,7 @@
     <div class="card waves-card">
       <div class="card-label">▼ Wave Schedule
         <span class="reset-link" style="margin-left:14px;" onclick="resetPad()">⟲ reset pad</span>
+        <button class="btn-tiny" style="margin-left:14px;" onclick="openAddWave()" title="Add a wave to the schedule (e.g. a surprise 4:45 wave) without resetting the board">+ add wave</button>
         <span id="moveWaveHint" style="margin-left:14px; color:var(--accent); font-weight:700; display:none;"></span>
       </div>
       <div class="waves-grid" id="wavesGrid"></div>
@@ -706,6 +707,28 @@
       <div class="confirm-actions">
         <button class="btn btn-secondary" id="confirmNo">Cancel</button>
         <button class="btn" id="confirmYes">Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add-a-wave dialog: insert a wave into a LIVE board (e.g. a surprise 4:45
+       wave). It slots into the schedule in time order; existing waves and loaded
+       pads are kept. -->
+  <div id="addWaveOverlay" class="confirm-overlay hidden">
+    <div class="confirm-box">
+      <div class="confirm-message">Add a wave</div>
+      <div class="form-row" style="margin-bottom:12px;">
+        <label>Wave deadline (time drivers must be gone)</label>
+        <input type="time" id="addWaveTime">
+      </div>
+      <div class="form-row" style="margin-bottom:16px;">
+        <label>Routes in this wave</label>
+        <input type="number" id="addWaveRoutes" min="1" max="60" value="3">
+      </div>
+      <div id="addWaveMsg" style="min-height:16px;font-size:12px;color:var(--danger);margin-bottom:8px;"></div>
+      <div class="confirm-actions">
+        <button class="btn btn-secondary" onclick="closeAddWave()">Cancel</button>
+        <button class="btn" onclick="submitAddWave()">Add Wave</button>
       </div>
     </div>
   </div>
@@ -1019,7 +1042,8 @@
       routeTypes: Array(capacity).fill(rt),   // per-slot route TYPE (dropdown; defaults to pad type)
       routes: Array(capacity).fill(''),       // per-slot route NUMBER (typed; starts blank)
       stages: Array(capacity).fill('STG.'),   // stage location per slot (auto-prefixed with STG.)
-      stageAuto: Array(capacity).fill(false)  // was this slot's stage auto-filled from the file?
+      stageAuto: Array(capacity).fill(false), // was this slot's stage auto-filled from the file?
+      slotMts: Array(capacity).fill(0)        // per-slot last-modified (ms) for collision-free merge
     };
   }
 
@@ -1042,6 +1066,7 @@
     if (!Array.isArray(pad.routeTypes)) pad.routeTypes = [];
     if (!Array.isArray(pad.stages)) pad.stages = [];
     if (!Array.isArray(pad.stageAuto)) pad.stageAuto = [];
+    if (!Array.isArray(pad.slotMts)) pad.slotMts = [];
     const typeRe = new RegExp('^(' + ROUTE_TYPES.join('|') + ')', 'i');
     for (let i = 0; i < pad.capacity; i++) {
       // Migrate older saves where the route was one combined string like "CX134":
@@ -1055,11 +1080,13 @@
       if (pad.routes[i] == null) pad.routes[i] = '';       // number starts blank
       if (pad.stages[i] == null) pad.stages[i] = 'STG.';
       if (pad.stageAuto[i] == null) pad.stageAuto[i] = false;
+      if (pad.slotMts[i] == null) pad.slotMts[i] = 0;
     }
     pad.routes.length = pad.capacity;        // trim if capacity shrank
     pad.routeTypes.length = pad.capacity;
     pad.stages.length = pad.capacity;
     pad.stageAuto.length = pad.capacity;
+    pad.slotMts.length = pad.capacity;
   }
 
   // Fully clear a pad: empty every slot AND reset its route/stage text back to
@@ -1335,18 +1362,106 @@
       const r = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'state', board: BOARD, state: payload })
+        body: JSON.stringify({ type: 'meta', board: BOARD, state: payload, meta: payload })
       });
       if (r.ok) { serverTs = payload._ts || serverTs; setLive('live'); }
       else setLive('offline');
     } catch (e) { setLive('offline'); }
   }
 
+  // ---- Per-slot saving (collision-free): write only the ONE slot that changed,
+  // as its own field on the server, so two people typing different slots never
+  // overwrite each other. -------------------------------------------------------
+  const slotTimers = {};   // debounce handle per "padId:i"
+  const slotDirty = {};    // pending slots to flush, keyed "padId:i" -> {padId,i}
+
+  function slotObj(pad, i) {
+    return {
+      s: pad.slots[i], t: pad.routeTypes[i], n: pad.routes[i],
+      g: pad.stages[i], a: pad.stageAuto[i] ? 1 : 0, m: pad.slotMts[i] || 0
+    };
+  }
+
+  // Mark a slot changed on THIS screen (bump its timestamp) and queue a per-slot
+  // save. Call this at every point a slot's status/type/number/stage changes by
+  // user action.
+  function touchSlot(pad, i) {
+    if (displayMode) return;
+    ensureSlotArrays(pad);
+    pad.slotMts[i] = Date.now();
+    if (!BOARD) return;
+    const k = pad.id + ':' + i;
+    slotDirty[k] = { padId: pad.id, i: i };
+    setLive('saving');
+    if (slotTimers[k]) clearTimeout(slotTimers[k]);
+    slotTimers[k] = setTimeout(() => flushSlot(pad.id, i), 200);
+  }
+
+  async function flushSlot(padId, i) {
+    const k = padId + ':' + i;
+    delete slotDirty[k];
+    const pad = getPad(padId);
+    if (!pad || !BOARD || displayMode) return;
+    try {
+      const r = await fetch(API_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'slot', board: BOARD, padId: padId, i: i, slot: slotObj(pad, i) })
+      });
+      setLive(r.ok ? 'live' : 'offline');
+    } catch (e) { setLive('offline'); }
+  }
+
+  // Save ALL of a pad's slots at once — used after operations that change many
+  // slots together (wave hand-off, clear, dispatch, capacity change, start).
+  async function saveSlotsBulk(pad) {
+    if (!pad || !BOARD || displayMode) return;
+    ensureSlotArrays(pad);
+    const now = Date.now();
+    const slots = [];
+    for (let i = 0; i < pad.capacity; i++) {
+      pad.slotMts[i] = now;                 // these are the freshest values now
+      slots.push({ padId: pad.id, i: i, slot: slotObj(pad, i) });
+    }
+    try {
+      await fetch(API_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'slots', board: BOARD, slots: slots })
+      });
+      setLive('live');
+    } catch (e) { setLive('offline'); }
+  }
+
+  // Turn the server's {meta, slots} into a normal board blob (pads with their
+  // slot arrays filled from the authoritative per-slot fields).
+  function reconstructBlob(raw) {
+    if (!raw || !raw.meta) return null;
+    const blob = raw.meta;
+    const slots = raw.slots || {};
+    if (Array.isArray(blob.pads)) {
+      blob.pads.forEach(p => {
+        ensureSlotArrays(p);
+        const ps = slots[p.id] || slots[String(p.id)] || {};
+        for (let i = 0; i < p.capacity; i++) {
+          const cell = ps[i] || ps[String(i)];
+          if (cell) {
+            p.slots[i]      = cell.s || 'empty';
+            p.routeTypes[i] = cell.t || p.routeType || ROUTE_TYPES[0];
+            p.routes[i]     = cell.n || '';
+            p.stages[i]     = cell.g || 'STG.';
+            p.stageAuto[i]  = !!cell.a;
+            p.slotMts[i]    = cell.m || 0;
+          }
+        }
+      });
+    }
+    return blob;
+  }
+
   async function serverLoad(board) {
     const r = await fetch(API_URL + '?board=' + encodeURIComponent(board));
     if (!r.ok) throw new Error('load failed');
     const data = await r.json();
-    return data.state || null;
+    return reconstructBlob(data.state);   // -> normal blob, or null
   }
 
   async function serverReset(board) {
@@ -1645,49 +1760,161 @@
     // Always sync the staging file first — even if we skip adopting the full
     // board below (e.g. while someone is typing), everyone still gets the file.
     syncStageMapFrom(state);
-    const incomingTs = state._ts || 0;
-    if (incomingTs <= serverTs) return;    // nothing newer than what we have
-    if (incomingTs <= localTs) return;     // our own unsaved edits are newer
-    // Don't yank the view while this person is typing/selecting on the board.
-    const ae = document.activeElement;
-    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT') &&
-        ae.closest && ae.closest('#dashboard')) return;
-    // Don't adopt while a confirm dialog is open (e.g. "Dispatch + Wave Done").
-    // Otherwise the board rebuilds underneath the dialog and the pending action
-    // commits against stale pads — the drivers don't move and waves jump.
-    const cf = document.getElementById('confirmOverlay');
-    if (cf && !cf.classList.contains('hidden')) return;
-    // Just clicked/typed on the board? Hold off rebuilding for a moment so a slot
-    // can't flip under your hand mid-click.
-    if (Date.now() - lastInteractionAt < INTERACTION_COOLDOWN_MS) return;
     // A "cleared" marker (or any empty board) = someone reset it → clear too.
     if (state._cleared || !state.pads || !state.pads.length) {
-      serverTs = incomingTs;               // remember we've seen this clear
-      localTs = Math.max(localTs, incomingTs);
+      serverTs = state._ts || serverTs;
+      localTs = Math.max(localTs, state._ts || 0);
       if (pads.length) resetToSetupLocal();
       return;
     }
-    // Per-pad merge: adopt the shared board, but for each pad keep whichever copy
-    // was edited most recently (by its own _mts timestamp). This is what stops an
-    // older snapshot from another screen from clearing a pad you just filled — the
-    // "it cleared then only brought part of it back" bug. A pad you edited more
-    // recently than the incoming copy is kept as-is; a pad someone else edited more
-    // recently is taken from the incoming state.
-    let keptLocalPad = false;
-    if (Array.isArray(state.pads)) {
-      state.pads = state.pads.map(pin => {
-        const ploc = getPad(pin.id);
-        if (ploc) {
-          const lm = ploc._mts || 0, im = pin._mts || 0;
-          if (lm > im) { keptLocalPad = true; try { return JSON.parse(JSON.stringify(ploc)); } catch (e) {} }
-        }
-        return pin;
-      });
+    // Don't adopt while a confirm dialog is open (e.g. "Dispatch + Wave Done").
+    const cf = document.getElementById('confirmOverlay');
+    if (cf && !cf.classList.contains('hidden')) return;
+
+    // Slot edits are saved as their OWN per-slot fields and do NOT bump the
+    // structure timestamp (_ts). So we ALWAYS merge slots (that's how another
+    // person's typing arrives), and separately adopt STRUCTURE only when its _ts
+    // is newer. Crucially, if someone here is typing in a slot, we update the
+    // OTHER slots in place around them instead of re-rendering (which would steal
+    // their focus / interrupt typing).
+    const incomingTs = state._ts || 0;
+    const structureNewer = incomingTs > serverTs && incomingTs > localTs;
+    const focusKey = focusedSlotKey();
+
+    if (!focusKey && structureNewer) {
+      // Nobody typing here → safe to fully adopt structure + slots and re-render.
+      const keptLocal = mergePadsInto(state);   // keep our locally-newer pad meta/slots
+      applyState(state);
+      if (keptLocal) saveState();               // our newer bits → push structure back
+      return;
     }
-    applyState(state);                     // adopt the merged shared state
-    // If our merge kept a locally-newer pad, the server copy is now behind — push
-    // the merged union back so every screen converges to everyone's latest work.
-    if (keptLocalPad) saveNow();
+
+    // Otherwise: merge just the slots (skip the one being typed in) and update in
+    // place. Structure changes, if any, wait until the field is blurred.
+    const changed = mergeSlotsIntoLocal(state, focusKey);
+    if (changed) {
+      recomputeWaveCounts();
+      if (focusKey) {
+        updateSlotsInPlace(focusKey);
+        renderWaves(); updateStats(); refreshStatusLines();
+        relabelLanes();
+      } else {
+        renderPads(); renderWaves(); updateStats();
+        if (displayMode) fitDisplay();
+        relabelLanes();
+      }
+    }
+  }
+
+  // The "padId:slotIndex" of the slot input the user is currently typing in on
+  // THIS screen, or null. Used so a background sync never overwrites the exact
+  // field being edited.
+  function focusedSlotKey() {
+    const ae = document.activeElement;
+    if (!ae || !ae.closest) return null;
+    const cell = ae.closest('#dashboard .slot');
+    const card = ae.closest('#dashboard .pad');
+    if (!cell || !card) return null;
+    const padId = +card.dataset.padId;
+    const cells = [...card.querySelectorAll('.slots-grid .slot')];
+    const idx = cells.indexOf(cell);
+    if (idx < 0) return null;
+    return padId + ':' + idx;
+  }
+
+  // Merge incoming per-slot data into LOCAL pads (keeping whichever copy of each
+  // slot is newer by its own timestamp), skipping the focused slot. Returns true
+  // if anything changed locally. This is what makes concurrent entry safe: each
+  // slot is independent, so two people on different slots both survive.
+  function mergeSlotsIntoLocal(state, focusKey) {
+    if (!Array.isArray(state.pads)) return false;
+    let changed = false;
+    state.pads.forEach(pin => {
+      const ploc = getPad(pin.id);
+      if (!ploc) return;
+      ensureSlotArrays(ploc);
+      const cap = Math.min(ploc.capacity, pin.capacity || 0);
+      for (let i = 0; i < cap; i++) {
+        if (focusKey === (pin.id + ':' + i)) continue;      // never touch the field being typed
+        const lm = (ploc.slotMts && ploc.slotMts[i]) || 0;
+        const im = (pin.slotMts && pin.slotMts[i]) || 0;
+        if (im > lm) {
+          ploc.slots[i]      = pin.slots[i];
+          ploc.routeTypes[i] = pin.routeTypes[i];
+          ploc.routes[i]     = pin.routes[i];
+          ploc.stages[i]     = pin.stages[i];
+          ploc.stageAuto[i]  = pin.stageAuto[i];
+          ploc.slotMts[i]    = im;
+          changed = true;
+        }
+      }
+    });
+    return changed;
+  }
+
+  // Before a full structural adopt, fold our locally-newer pad meta AND slots into
+  // the incoming state so applyState() doesn't wipe them. Returns true if we kept
+  // anything local-newer (so the caller re-pushes structure to converge).
+  function mergePadsInto(state) {
+    if (!Array.isArray(state.pads)) return false;
+    let kept = false;
+    state.pads.forEach(pin => {
+      const ploc = getPad(pin.id);
+      if (!ploc) return;
+      ensureSlotArrays(ploc);
+      if ((ploc._mts || 0) > (pin._mts || 0)) {
+        // Our pad meta is newer — take the whole local pad (meta + slots).
+        pin.name = ploc.name; pin.role = ploc.role; pin.capacity = ploc.capacity;
+        pin.waveIdx = ploc.waveIdx; pin.feedsInto = ploc.feedsInto;
+        pin.routeType = ploc.routeType; pin.slotCols = ploc.slotCols;
+        pin.timerStartedAt = ploc.timerStartedAt; pin._mts = ploc._mts;
+        pin.slots = ploc.slots.slice(); pin.routeTypes = ploc.routeTypes.slice();
+        pin.routes = ploc.routes.slice(); pin.stages = ploc.stages.slice();
+        pin.stageAuto = ploc.stageAuto.slice(); pin.slotMts = (ploc.slotMts || []).slice();
+        kept = true;
+      } else {
+        // Incoming meta wins, but keep any individual slot we edited more recently.
+        const cap = pin.capacity || 0;
+        for (let i = 0; i < cap; i++) {
+          const lm = (ploc.slotMts && ploc.slotMts[i]) || 0;
+          const im = (pin.slotMts && pin.slotMts[i]) || 0;
+          if (lm > im) {
+            pin.slots[i] = ploc.slots[i]; pin.routeTypes[i] = ploc.routeTypes[i];
+            pin.routes[i] = ploc.routes[i]; pin.stages[i] = ploc.stages[i];
+            pin.stageAuto[i] = ploc.stageAuto[i];
+            if (pin.slotMts) pin.slotMts[i] = lm;
+            kept = true;
+          }
+        }
+      }
+    });
+    return kept;
+  }
+
+  // Update every slot's DOM from local data WITHOUT rebuilding the cards, so the
+  // field being typed in keeps focus. Skips any input that's currently focused.
+  function updateSlotsInPlace(focusKey) {
+    const grid = document.getElementById('padsGrid');
+    if (!grid) return;
+    grid.querySelectorAll('.pad').forEach(card => {
+      const pad = getPad(+card.dataset.padId);
+      if (!pad) return;
+      ensureSlotArrays(pad);
+      const cells = card.querySelectorAll('.slots-grid .slot');
+      cells.forEach((cell, i) => {
+        if (i >= pad.capacity) return;
+        cell.className = 'slot ' + pad.slots[i];
+        const strip = cell.querySelector('.slot-status');
+        if (strip) strip.textContent = slotStatusLabel(pad.slots[i], i + 1);
+        const typeSel = cell.querySelector('.slot-type');
+        if (typeSel && document.activeElement !== typeSel) typeSel.value = pad.routeTypes[i] || pad.routeType;
+        const num = cell.querySelector('.slot-route');
+        if (num && document.activeElement !== num) num.value = pad.routes[i] || '';
+        const stg = cell.querySelector('.slot-stage');
+        if (stg && document.activeElement !== stg) stg.value = pad.stages[i] || 'STG.';
+      });
+      updatePadFillDisplays(pad, card);
+    });
   }
 
   // Export the CSV, then wipe THIS board's stored data (local + server). The tool
@@ -1709,7 +1936,7 @@
         fetch(API_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'state', board: board, state: tomb })
+          body: JSON.stringify({ type: 'meta', board: board, meta: tomb })
         }).then(() => serverReset(board)).catch(() => {});
       }
       switchBoard();       // stops polling + clock + all timers, returns to the gate
@@ -1940,7 +2167,7 @@
         fetch(API_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'state', board: board, state: tomb })
+          body: JSON.stringify({ type: 'meta', board: board, meta: tomb })
         }).catch(() => {});
       }
     });
@@ -2167,6 +2394,7 @@
     } else {
       pad.slots[slotIdx] = 'empty';        // late -> empty
     }
+    touchSlot(pad, slotIdx);   // save just this slot (collision-free)
     renderEverything();
   }
 
@@ -2177,6 +2405,7 @@
     uiConfirm(`Clear ${pad.name}?`, () => {
       resetPadEntries(pad);   // empty slots and reset route/stage text
       saveState();
+      saveSlotsBulk(pad);     // write the now-empty slots so they don't resurrect
       renderEverything();
     });
   }
@@ -2222,6 +2451,8 @@
       pad.waveIdx = (nextIdx < waves.length) ? nextIdx : null;
     }
 
+    saveState();
+    saveSlotsBulk(pad);     // persist every slot change (dispatched / cleared)
     renderEverything();
   }
 
@@ -2322,6 +2553,7 @@
     pad.capacity = cap;
     pad.slots = next;
     ensureSlotArrays(pad);   // keep routes[]/stages[] the same length as slots
+    saveSlotsBulk(pad);      // persist the resized slot set
   }
 
   // Set a pad's grid (per pad). "4x6" sets 4 columns AND 24 squares; "4" just
@@ -2435,6 +2667,8 @@
 
       ensureSlotArrays(target);
       saveState();
+      saveSlotsBulk(target);                     // persist dispatched / moved-in slots
+      if (feederHandsOff && feeder) saveSlotsBulk(feeder);  // persist the now-cleared feeder
       renderEverything();
     };
 
@@ -2687,7 +2921,7 @@
           // Type is a discrete choice, so look up immediately.
           if (applyStageLookup(pad, i)) stageInput.value = pad.stages[i];
           updatePadFillDisplays(pad, card);
-          saveState();
+          touchSlot(pad, i);
         };
 
         const numInput = document.createElement('input');
@@ -2703,19 +2937,19 @@
             status.textContent = slotStatusLabel(pad.slots[i], lane);
           }
           updatePadFillDisplays(pad, card);
-          saveState();
+          touchSlot(pad, i);
           // Look up the stage only AFTER the operator pauses typing, so a
           // partial code (e.g. "CX1" while typing "CX161") doesn't grab the
           // wrong stage. ~500ms after the last keystroke we match the full code.
           clearTimeout(numInput._stgTimer);
           numInput._stgTimer = setTimeout(() => {
-            if (applyStageLookup(pad, i)) { stageInput.value = pad.stages[i]; saveState(); }
+            if (applyStageLookup(pad, i)) { stageInput.value = pad.stages[i]; touchSlot(pad, i); }
           }, 500);
         };
         // Also resolve immediately when they leave the field.
         numInput.onchange = () => {
           clearTimeout(numInput._stgTimer);
-          if (applyStageLookup(pad, i)) { stageInput.value = pad.stages[i]; saveState(); }
+          if (applyStageLookup(pad, i)) { stageInput.value = pad.stages[i]; touchSlot(pad, i); }
         };
 
         routeRow.appendChild(typeSel);
@@ -2745,7 +2979,7 @@
             status.textContent = slotStatusLabel(pad.slots[i], lane);
           }
           updatePadFillDisplays(pad, card);
-          saveState();
+          touchSlot(pad, i);
         };
 
         // --- assemble the cell ----------------------------------------------
@@ -3091,8 +3325,75 @@
     // Note: if they cancel the dialog, stay armed so they can pick another wave.
   }
 
-  function renderWaves() {
-    const grid = document.getElementById('wavesGrid');
+  // ===== Add a wave to a LIVE board (e.g. a surprise 4:45 wave with 3 routes).
+  // It inserts in time order, keeps all existing waves/pads, and remaps each pad's
+  // wave so nobody's loaded drivers move. =====
+  function timeToMin(hhmm) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || '');
+    if (!m) return null;
+    return (+m[1]) * 60 + (+m[2]);
+  }
+  function openAddWave() {
+    const o = document.getElementById('addWaveOverlay');
+    const t = document.getElementById('addWaveTime');
+    const r = document.getElementById('addWaveRoutes');
+    const msg = document.getElementById('addWaveMsg');
+    if (msg) msg.textContent = '';
+    // Default the time to one interval after the last wave's deadline.
+    let def = '';
+    if (waves.length) {
+      const last = waves[waves.length - 1].deadline;
+      def = addMinutesHHMM(last, parseInt((config && config.dispatchTime != null) ? 15 : 15) || 15);
+      def = addMinutesHHMM(last, (waves.length > 1 ? (timeToMin(waves[waves.length-1].deadline) - timeToMin(waves[waves.length-2].deadline)) : 15) || 15);
+    }
+    if (t) t.value = def || '06:30';
+    if (r) r.value = (config && config.routesPerWave) ? config.routesPerWave : 3;
+    if (o) o.classList.remove('hidden');
+    if (t) setTimeout(() => t.focus(), 30);
+  }
+  function closeAddWave() {
+    const o = document.getElementById('addWaveOverlay');
+    if (o) o.classList.add('hidden');
+  }
+  function submitAddWave() {
+    const t = document.getElementById('addWaveTime');
+    const r = document.getElementById('addWaveRoutes');
+    const msg = document.getElementById('addWaveMsg');
+    const deadline = (t && t.value) || '';
+    if (timeToMin(deadline) === null) { if (msg) msg.textContent = 'Enter a valid time (HH:MM).'; return; }
+    let routes = parseInt(r && r.value);
+    if (isNaN(routes) || routes < 1) routes = 1;
+    if (routes > 60) routes = 60;
+
+    // Remember each pad's current wave OBJECT so we can restore its index after
+    // the array is re-sorted by time.
+    const padWave = pads.map(p => ({ p, w: (p.waveIdx != null ? waves[p.waveIdx] : null) }));
+
+    const nw = {
+      num: 0, deadline: deadline, scheduled: routes, drivers: routes,
+      dispatched: 0, onTime: 0, late: 0, effective: routes, shortBy: 0, anchored: true
+    };
+    waves.push(nw);
+    waves.sort((a, b) => (timeToMin(a.deadline) - timeToMin(b.deadline)));
+    waves.forEach((wv, idx) => { wv.num = idx + 1; });     // renumber in time order
+
+    // Point every pad back at the SAME wave it was on (now at a new index).
+    padWave.forEach(({ p, w }) => {
+      if (w) { const ni = waves.indexOf(w); if (ni >= 0) p.waveIdx = ni; }
+    });
+    // Keep any staging pad parked one wave ahead of the pad it feeds.
+    pads.forEach(p => { if (p.role === 'stage' && p.feedsInto != null) syncFeederWave(p); });
+
+    // Refresh the setup total so the header/short math stays sensible.
+    if (config) config.totalRoutes = waves.reduce((s, w) => s + (w.scheduled || 0), 0);
+
+    logEvent('Add Wave', '', null, `W${nw.num} @ ${deadline} · ${routes} routes`);
+    closeAddWave();
+    saveState();
+    renderEverything();
+  }
+
+  function renderWaves() {    const grid = document.getElementById('wavesGrid');
     grid.innerHTML = '';
     const armedPad = moveWavePadId !== null ? getPad(moveWavePadId) : null;
     const hint = document.getElementById('moveWaveHint');
