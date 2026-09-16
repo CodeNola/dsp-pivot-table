@@ -1411,6 +1411,18 @@
     } catch (e) { setLive('offline'); }
   }
 
+  // Drop any pending single-slot debounced saves for a pad. Called right before a
+  // bulk save during a hand-off/clear so a keystroke typed a moment earlier can't
+  // fire its 200ms flush AFTER the bulk write and clobber a just-moved slot.
+  function cancelPendingSlotSaves(pad) {
+    if (!pad) return;
+    for (let i = 0; i < pad.capacity; i++) {
+      const k = pad.id + ':' + i;
+      if (slotTimers[k]) { clearTimeout(slotTimers[k]); delete slotTimers[k]; }
+      delete slotDirty[k];
+    }
+  }
+
   // Save ALL of a pad's slots at once — used after operations that change many
   // slots together (wave hand-off, clear, dispatch, capacity change, start).
   async function saveSlotsBulk(pad) {
@@ -1441,6 +1453,15 @@
       blob.pads.forEach(p => {
         ensureSlotArrays(p);
         const ps = slots[p.id] || slots[String(p.id)] || {};
+        // The per-slot fields are the authoritative live copy of the slots. If
+        // this pad has ANY of them, drive EVERY slot from them: apply the ones
+        // present and blank the ones absent. We must NOT fall back to the meta
+        // blob's embedded slot snapshot, because meta is whole-blob/last-write
+        // and can be stale right after a wave hand-off — falling back to it is
+        // exactly what "resurrected" old drivers or only brought back a few
+        // slots when a pad moved. (A pad with zero per-slot fields is a legacy /
+        // first-load board, so there we keep the meta snapshot as-is.)
+        const hasPerSlot = Object.keys(ps).length > 0;
         for (let i = 0; i < p.capacity; i++) {
           const cell = ps[i] || ps[String(i)];
           if (cell) {
@@ -1450,6 +1471,13 @@
             p.stages[i]     = cell.g || 'STG.';
             p.stageAuto[i]  = !!cell.a;
             p.slotMts[i]    = cell.m || 0;
+          } else if (hasPerSlot) {
+            p.slots[i]      = 'empty';
+            p.routeTypes[i] = p.routeType || ROUTE_TYPES[0];
+            p.routes[i]     = '';
+            p.stages[i]     = 'STG.';
+            p.stageAuto[i]  = false;
+            // Leave slotMts[i] as-is (0/old) so any real per-slot write wins later.
           }
         }
       });
@@ -1949,9 +1977,17 @@
   // ========= SETUP =========
   function generateWaves() {
     const total = parseInt(document.getElementById('totalRoutes').value);
-    const perWave = parseInt(document.getElementById('routesPerWave').value);
+    let perWave = parseInt(document.getElementById('routesPerWave').value);
     const firstTime = document.getElementById('firstWaveTime').value;
-    const interval = parseInt(document.getElementById('waveInterval').value);
+    let interval = parseInt(document.getElementById('waveInterval').value);
+
+    // Guard the inputs. The loop below subtracts min(perWave, remaining) each
+    // pass; if "routes per wave" was blank or 0 it subtracted 0, remaining never
+    // reached 0, and the tab froze and the browser closed it — that's the "it
+    // closes when I hit Generate Wave" behavior. Clamp to safe values instead.
+    if (!(total > 0)) { alert('Enter the total number of routes first.'); return; }
+    if (!(perWave > 0)) { perWave = 20; document.getElementById('routesPerWave').value = 20; }
+    if (!(interval > 0)) { interval = 15; }
 
     // remember the default routes-per-wave so new pads size themselves to it
     config.routesPerWave = perWave;
@@ -1960,8 +1996,9 @@
     let remaining = total;
     let [hh, mm] = firstTime.split(':').map(Number);
     let waveNum = 1;
-    while (remaining > 0) {
+    while (remaining > 0 && waves.length < 500) {
       const count = Math.min(perWave, remaining);
+      if (count <= 0) break;   // safety net: never loop without making progress
       waves.push({
         num: waveNum,
         deadline: `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`,
@@ -2097,7 +2134,7 @@
     // preset (e.g. DTU8 comes up as Late / Main / Staging→Main); everyone else
     // gets DEFAULT_LAYOUT (three independent main pads). Operators can change any
     // of it afterward.
-    const cap = config.routesPerWave;
+    const cap = (config.routesPerWave > 0) ? config.routesPerWave : 20;
     nextPadId = 1;
     const layout = BOARD_LAYOUTS[(BOARD || '').toUpperCase()] || DEFAULT_LAYOUT;
     pads = layout.map(spec => makePad(spec.name, spec.role, cap, 0));
@@ -2589,7 +2626,7 @@
     // The actual wave advance. Everything is re-resolved from CURRENT state here
     // (not captured earlier), so an intervening sync can't make this act on stale
     // pads. Runs only after the confirm is accepted.
-    const commit = () => {
+    const commit = async () => {
       const target = getPad(targetId);
       if (!target || target.waveIdx === null) return;
       const feeder = feederOf(targetId);
@@ -2635,6 +2672,15 @@
       if (feederHandsOff && feeder) {
         // Carry the feeder's staged drivers — slot state, route TYPE, route
         // number, and stage — onto the target pad.
+        ensureSlotArrays(feeder);
+        // If the feeder is holding drivers past the target's last slot, grow the
+        // target so NONE are silently dropped (this used to truncate to the
+        // target's capacity and lose the overflow — "only brought back a few").
+        let lastFilled = -1;
+        for (let i = feeder.capacity - 1; i >= 0; i--) {
+          if (feeder.slots[i] && feeder.slots[i] !== 'empty') { lastFilled = i; break; }
+        }
+        if (lastFilled + 1 > target.capacity) resizePadCapacity(target, lastFilled + 1);
         const n = target.capacity;
         const S = Array(n).fill('empty');
         const T = Array(n).fill(target.routeType || ROUTE_TYPES[0]);
@@ -2666,9 +2712,16 @@
       }
 
       ensureSlotArrays(target);
+      // Per-slot fields are authoritative, so write them FIRST and wait for them,
+      // then save the structure blob. That ordering means a poll landing mid
+      // hand-off can only ever read a consistent pad — never the half state that
+      // caused slots to vanish and come back partial. Cancel pending keystroke
+      // saves first so none fire after the bulk write.
+      cancelPendingSlotSaves(target);
+      if (feederHandsOff && feeder) cancelPendingSlotSaves(feeder);
+      await saveSlotsBulk(target);                     // persist dispatched / moved-in slots
+      if (feederHandsOff && feeder) await saveSlotsBulk(feeder);  // persist the now-cleared feeder
       saveState();
-      saveSlotsBulk(target);                     // persist dispatched / moved-in slots
-      if (feederHandsOff && feeder) saveSlotsBulk(feeder);  // persist the now-cleared feeder
       renderEverything();
     };
 

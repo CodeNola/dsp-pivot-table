@@ -21,14 +21,52 @@ try { ({ createClient } = require("redis")); } catch (e) { redisLoadError = e; }
 
 const REDIS_URL = process.env.KV_REDIS_URL || process.env.REDIS_URL || process.env.KV_URL;
 
-let clientPromise = null;
+// Parse the connection string with the WHATWG URL API and hand node-redis the
+// structured socket options instead of the raw { url } string. Passing { url }
+// makes some redis/@redis versions run the request through Node's legacy
+// url.parse(), which logs the DEP0169 deprecation warning on every cold start
+// (that's the "error" that appears in the Vercel logs when the page opens — it's
+// a noisy warning, not a crash). Building the options ourselves avoids that path.
+function clientOptions() {
+  try {
+    const u = new URL(REDIS_URL);
+    const opts = {
+      username: u.username ? decodeURIComponent(u.username) : undefined,
+      password: u.password ? decodeURIComponent(u.password) : undefined,
+      socket: {
+        host: u.hostname,
+        port: u.port ? Number(u.port) : 6379,
+        tls: u.protocol === "rediss:",
+        // Keep trying to reconnect (serverless functions freeze between calls, so
+        // the socket is often dropped by the time the next request wakes it up).
+        reconnectStrategy: (retries) => Math.min(retries * 50, 2000),
+      },
+    };
+    const db = u.pathname && u.pathname.length > 1 ? Number(u.pathname.slice(1)) : NaN;
+    if (!Number.isNaN(db)) opts.database = db;
+    return opts;
+  } catch (e) {
+    // If anything about the URL is unusual, fall back to the plain form.
+    return { url: REDIS_URL };
+  }
+}
+
+// One cached client per warm function instance. The previous version cached the
+// connection forever and never rebuilt it, so once Vercel froze/thawed the
+// function (or Redis closed the idle socket) every later request threw. Now an
+// error on the socket drops the cached client so the very next call rebuilds it,
+// and a fast isReady check reuses a healthy one.
+let client = null, clientPromise = null;
 function getClient() {
   if (redisLoadError) throw new Error("redis module failed to load: " + (redisLoadError.message || redisLoadError));
   if (!REDIS_URL) throw new Error("Missing KV_REDIS_URL. Connect the Redis store to this project in Vercel, then redeploy.");
+  if (client && client.isReady) return Promise.resolve(client);
   if (!clientPromise) {
-    const client = createClient({ url: REDIS_URL });
-    client.on("error", () => {});
-    clientPromise = client.connect().then(() => client).catch((e) => { clientPromise = null; throw e; });
+    const c = createClient(clientOptions());
+    c.on("error", () => { clientPromise = null; client = null; });  // drop the dead client → next call rebuilds
+    clientPromise = c.connect()
+      .then(() => { client = c; return c; })
+      .catch((e) => { clientPromise = null; client = null; throw e; });
   }
   return clientPromise;
 }
