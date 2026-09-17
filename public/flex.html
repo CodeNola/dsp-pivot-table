@@ -1506,6 +1506,42 @@
     try { localStorage.removeItem(localKey()); } catch (e) {}
   }
 
+  // ---- Setup-screen draft (saved on THIS device, per board) -----------------
+  // The Configure screen — the fields plus a generated wave schedule — lived only
+  // in memory until you pressed Start Pad, so closing/backing out before that
+  // lost it and you had to generate again. We now stash an in-progress draft in
+  // localStorage and restore it when you reopen the same board on this device.
+  const SETUP_PREFIX = 'flexSetupDraft:';
+  const SETUP_FIELDS = ['totalRoutes','routesPerWave','routeType','firstWaveTime','waveInterval','goalPct','loadTime','dispatchTime'];
+  function setupDraftKey() { return SETUP_PREFIX + (BOARD || '_'); }
+
+  function saveSetupDraft() {
+    if (!BOARD || displayMode) return;
+    if (pads.length) return;   // once a pad exists the live board (saveState) is the store
+    const fields = {};
+    SETUP_FIELDS.forEach(id => { const el = document.getElementById(id); if (el) fields[id] = el.value; });
+    try { localStorage.setItem(setupDraftKey(), JSON.stringify({ fields, waves, _ts: Date.now() })); } catch (e) {}
+  }
+
+  function clearSetupDraft() {
+    try { localStorage.removeItem(setupDraftKey()); } catch (e) {}
+  }
+
+  // Repopulate the setup screen from a saved draft. Returns true if one existed.
+  function restoreSetupDraft() {
+    let draft = null;
+    try { const raw = localStorage.getItem(setupDraftKey()); if (raw) draft = JSON.parse(raw); } catch (e) {}
+    if (!draft || !draft.fields) return false;
+    SETUP_FIELDS.forEach(id => { const el = document.getElementById(id); if (el && draft.fields[id] != null) el.value = draft.fields[id]; });
+    if (Array.isArray(draft.waves) && draft.waves.length) {
+      waves = draft.waves;
+      renderDriverRows();
+      const das = document.getElementById('driverAllocSection');
+      if (das) das.classList.remove('hidden');
+    }
+    return true;
+  }
+
   // Populate every global from a saved state blob and show the dashboard.
   // Used both for the initial open and when polling adopts someone else's change.
   function applyState(state) {
@@ -1595,9 +1631,11 @@
     if (state && state.pads && state.pads.length) {
       applyState(state);        // existing board → jump straight to the dashboard
     } else {
-      // Fresh board → show the setup screen so this person configures it.
+      // Fresh board → show the setup screen so this person configures it,
+      // restoring any in-progress draft they left here before pressing Start Pad.
       document.getElementById('boardGate').classList.add('hidden');
       document.getElementById('setup').classList.remove('hidden');
+      restoreSetupDraft();
     }
     startPolling();
   }
@@ -1717,9 +1755,9 @@
   let activePadId = null;
   const INTERACTION_COOLDOWN_MS = 2500;  // after a click/keystroke, don't adopt for this long
   function noteInteraction(e) {
-    // If polling had stopped because the screen was idle, wake it up right now so
-    // the person immediately sees the latest board before they start changing it.
-    const wasIdle = (Date.now() - lastActiveAt) >= POLL_IDLE_STOP_MS;
+    // Give an immediate refresh if we haven't polled in the last couple seconds,
+    // so the person sees the latest board before they start changing it.
+    const wasIdle = (Date.now() - lastPollAt) >= POLL_ACTIVE_MS;
     lastInteractionAt = Date.now();
     lastActiveAt = Date.now();
     const t = e && e.target;
@@ -1737,36 +1775,44 @@
     }, true)
   );
 
-  // ---- Smart polling — saves server usage (Vercel free-tier invocations) ----
-  // A screen only polls the server when it's actually in use. If nobody clicks or
-  // types for a few minutes, or the tab is hidden / laptop asleep, polling STOPS
-  // (zero server calls). The moment someone interacts or returns to the tab, it
-  // does an immediate catch-up poll and resumes. A screen in Display (📺) mode
-  // keeps polling while it's on-screen, since a display is meant to stay live with
-  // nobody touching it.
-  const POLL_ACTIVE_MS = 2000;      // how often an in-use screen checks for changes
-  const POLL_IDLE_STOP_MS = 180000; // stop polling after this long with no interaction (3 min)
+  // ---- Live polling — every open screen stays in sync until End Session ----
+  // Polling runs CONTINUOUSLY while a board is open, so no screen is ever left
+  // showing a stale board. (A screen that paused would disagree with the others —
+  // one on "loading" while another shows "departed" — and, worse, could write its
+  // old copy back and make a wave time "reset itself" from 7:00 to 6:45. Staying
+  // current stops both.) Polling stops ONLY when the session ends or the board is
+  // closed: endSession() and switchBoard() call stopPolling().
+  //
+  // To keep Vercel edge requests down without ever going silent, the gap between
+  // checks adapts instead of stopping — snappy right after you interact, a little
+  // slower when the board is just sitting open, slower still when the tab is in
+  // the background. A Display (📺) stays snappy since it's meant to be watched.
+  const POLL_ACTIVE_MS  = 2000;     // just interacted, or a live display
+  const POLL_IDLE_MS    = 7000;     // board open in the foreground, nobody touching it
+  const POLL_HIDDEN_MS  = 15000;    // tab backgrounded (still live, just cheaper)
+  const ACTIVE_WINDOW_MS = 20000;   // "just interacted" lasts this long after a click/keystroke
   let lastPollAt = 0;
 
-  function shouldPoll() {
-    if (!BOARD) return false;
-    if (typeof document !== 'undefined' && document.hidden) return false;  // asleep / backgrounded
-    if (displayMode) return true;                                          // a live display always polls
-    return (Date.now() - lastActiveAt) < POLL_IDLE_STOP_MS;                // in use recently
+  // How long to wait before the next server check, given what the screen is doing.
+  function currentPollGap() {
+    if (typeof document !== 'undefined' && document.hidden) return POLL_HIDDEN_MS;
+    if (displayMode) return POLL_ACTIVE_MS;
+    if (Date.now() - lastActiveAt < ACTIVE_WINDOW_MS) return POLL_ACTIVE_MS;
+    return POLL_IDLE_MS;
   }
 
   function startPolling() {
     stopPolling();
     lastActiveAt = Date.now();   // opening/switching a board counts as "in use"
-    // A cheap 1s local tick (no server call). It only hits the server when the
-    // screen is actually in use, and at most every POLL_ACTIVE_MS.
+    lastPollAt = 0;              // poll on the very next tick
+    // Cheap 1s local tick; the server is only hit once per currentPollGap().
     pollTimer = setInterval(() => {
-      if (shouldPoll() && (Date.now() - lastPollAt) >= POLL_ACTIVE_MS) pollServer();
+      if (BOARD && (Date.now() - lastPollAt) >= currentPollGap()) pollServer();
     }, 1000);
   }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
-  // Instant wake-up: coming back to the tab (or the laptop waking) catches up now.
+  // Instant catch-up when you return to the tab (or the laptop wakes).
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && BOARD) { lastActiveAt = Date.now(); pollServer(); }
@@ -2015,6 +2061,7 @@
     }
     renderDriverRows();
     document.getElementById('driverAllocSection').classList.remove('hidden');
+    saveSetupDraft();   // schedule now survives a close/reopen on this device
   }
 
   // Add minutes to an "HH:MM" time, wrapping across the hour/day.
@@ -2048,6 +2095,7 @@
     waves[idx].anchored = true;
     recomputeWaveTimes();
     renderDriverRows();
+    saveSetupDraft();
   }
 
   // Clear a manual edit so the wave flows from the interval again.
@@ -2055,6 +2103,7 @@
     waves[idx].anchored = false;
     recomputeWaveTimes();
     renderDriverRows();
+    saveSetupDraft();
   }
 
   function renderDriverRows() {
@@ -2084,11 +2133,13 @@
   function updateDriverCount(idx, val) {
     waves[idx].drivers = parseInt(val) || 0;
     updateDriverTotals();
+    saveSetupDraft();
   }
 
   function autoFillDrivers() {
     waves.forEach(w => w.drivers = w.scheduled);
     renderDriverRows();
+    saveSetupDraft();
   }
 
   function updateDriverTotals() {
@@ -2160,6 +2211,7 @@
     renderEverything();
     startClock();
     saveState();   // push the new board to the shared server right away
+    clearSetupDraft();   // the live board now supersedes the setup draft
   }
 
   // Clear THIS screen back to the setup view (no confirm, no server call).
@@ -2186,6 +2238,7 @@
     document.getElementById('setup').classList.remove('hidden');
     const das = document.getElementById('driverAllocSection');
     if (das) das.classList.add('hidden');
+    clearSetupDraft();
   }
 
   function resetPad() {
@@ -3729,6 +3782,8 @@
   window.addEventListener('DOMContentLoaded', async () => {
     const rtSel = document.getElementById('routeType');
     if (rtSel) rtSel.innerHTML = routeTypeOptions(ROUTE_TYPES[0]);
+    // Keep the setup draft current as the operator tweaks the config fields.
+    SETUP_FIELDS.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', saveSetupDraft); });
 
     const params = new URLSearchParams(location.search);
     const urlBoard = params.get('board');
