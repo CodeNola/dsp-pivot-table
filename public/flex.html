@@ -287,6 +287,21 @@
   .pad-timer-btn.stop { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
   .pad-timer-btn.stop:hover { border-color: var(--danger); color: var(--danger); box-shadow: none; }
 
+  .lane-bar { display: grid; gap: 5px; margin-bottom: 5px; min-width: 0; }
+  .lane-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .lane-wave {
+    width: 100%; min-width: 0; background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); font-family: inherit; font-size: 10px; border-radius: 4px;
+    padding: 3px 2px; outline: none; cursor: pointer;
+  }
+  .lane-wave.dup { border-color: var(--danger); }
+  .lane-btn {
+    background: var(--panel-2); border: 1px solid var(--accent); color: var(--accent);
+    font-family: inherit; font-size: 10px; font-weight: 700; border-radius: 4px;
+    padding: 4px 2px; cursor: pointer;
+  }
+  .lane-btn:hover:not(:disabled) { background: var(--accent); color: #000; }
+  .lane-btn:disabled { opacity: 0.35; cursor: default; border-color: var(--border); color: var(--muted); }
   .slots-grid {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(122px, 1fr)); gap: 5px;
     margin-bottom: 10px; min-width: 0;
@@ -1292,15 +1307,19 @@
   // Record every dispatched/late route on a pad into the day-long manifest, so the
   // export keeps them even after a wave-done clears the slots. De-dupes by slot so
   // calling it twice for the same wave can't double-record.
-  function recordDispatched(pad) {
-    if (!pad || pad.waveIdx === null) return;
+  function recordDispatched(pad, only) {
+    if (!pad) return;
+    if (pad.waveIdx === null && !lanesEnabled(pad)) return;
     ensureSlotArrays(pad);
-    const wnum = waves[pad.waveIdx] ? waves[pad.waveIdx].num : '';
     const now = Date.now();
     const clock = new Date().toLocaleTimeString('en-US', { hour12: false });
     for (let i = 0; i < pad.capacity; i++) {
       const st = pad.slots[i];
       if (st !== 'dispatched' && st !== 'late') continue;
+      if (only && only.indexOf(i) === -1) continue;
+      const widx = slotWaveIdx(pad, i);
+      if (widx === null) continue;
+      const wnum = waves[widx] ? waves[widx].num : '';
       const num = pad.routes[i] || '';
       const route = num ? ((pad.routeTypes[i] || '') + num) : '';
       const stage = pad.stages[i] || '';
@@ -1940,7 +1959,7 @@
         // Our pad meta is newer — take the whole local pad (meta + slots).
         pin.name = ploc.name; pin.role = ploc.role; pin.capacity = ploc.capacity;
         pin.waveIdx = ploc.waveIdx; pin.feedsInto = ploc.feedsInto;
-        pin.routeType = ploc.routeType; pin.slotCols = ploc.slotCols;
+        pin.routeType = ploc.routeType; pin.slotCols = ploc.slotCols; pin.lanes = ploc.lanes;
         pin.timerStartedAt = ploc.timerStartedAt; pin._mts = ploc._mts;
         pin.slots = ploc.slots.slice(); pin.routeTypes = ploc.routeTypes.slice();
         pin.routes = ploc.routes.slice(); pin.stages = ploc.stages.slice();
@@ -2466,7 +2485,7 @@
   // ========= SLOT INTERACTION =========
   function cycleSlot(padId, slotIdx) {
     const pad = getPad(padId);
-    if (!pad || pad.waveIdx === null) return;
+    if (!pad || slotWaveIdx(pad, slotIdx) === null) return;
     const current = pad.slots[slotIdx];
 
     // Manual cycle — YOU decide the outcome, because a driver can leave on time
@@ -2500,11 +2519,190 @@
     });
   }
 
+  // ========= LANES (Late/Overflow + Extra pads only) =========
+  // A lane is a COLUMN of a pad's fixed slot grid. Active lanes each carry their own
+  // wave (pad.lanes = { active:[1,4], wave:{1:idx, 4:idx} }, idx = index into waves[]).
+  // The wave is only a label on the lane — drivers/inputs never depend on it.
+  function lanesEnabled(pad) {
+    return !!(pad && (pad.role === 'late' || pad.role === 'extra') && pad.lanes &&
+      Array.isArray(pad.lanes.active) && pad.lanes.active.length &&
+      typeof pad.slotCols === 'number' && pad.slotCols >= 1);
+  }
+  function laneOfSlot(pad, i) { return (i % pad.slotCols) + 1; }
+  // The wave a slot belongs to: its lane's wave if the lane is active, else the pad's wave.
+  function slotWaveIdx(pad, i) {
+    if (!pad) return null;
+    if (lanesEnabled(pad)) {
+      const lane = laneOfSlot(pad, i);
+      if (pad.lanes.active.indexOf(lane) !== -1) {
+        const w = pad.lanes.wave[lane];
+        return (w === undefined || w === null) ? null : w;
+      }
+    }
+    return pad.waveIdx;
+  }
+  function deriveLaneWaves(pad, baseIdx) {
+    pad.lanes.wave = {};
+    pad.lanes.active.forEach((lane, k) => {
+      const w = (baseIdx === null || baseIdx === undefined) ? null : baseIdx + k;
+      pad.lanes.wave[lane] = (w !== null && w < waves.length) ? w : null;
+    });
+  }
+  function ensureLanes(pad) {
+    if (!lanesEnabled(pad)) return;
+    if (!pad.lanes.wave) pad.lanes.wave = {};
+    if (pad.lanes.active.some(l => pad.lanes.wave[l] === undefined)) deriveLaneWaves(pad, pad.waveIdx);
+  }
+  // Pad header/timer follow the EARLIEST lane's wave.
+  function syncPadWaveFromLanes(pad) {
+    if (!lanesEnabled(pad)) return;
+    const v = pad.lanes.active.map(l => pad.lanes.wave[l]).filter(w => w !== null && w !== undefined);
+    pad.waveIdx = v.length ? Math.min.apply(null, v) : null;
+  }
+  function isWavePast(idx) {
+    const w = waves[idx];
+    if (!w) return false;
+    const now = new Date();
+    const [dh, dm] = w.deadline.split(':').map(Number);
+    const d = new Date(now); d.setHours(dh, dm, 0, 0);
+    return now >= d;
+  }
+  function laneWindowLabel(idx) {
+    const w = waves[idx];
+    if (!w) return '—';
+    const iv = parseInt((document.getElementById('waveInterval') || {}).value) || 15;
+    return 'W' + w.num + '  ' + addMinutesHHMM(w.deadline, -iv) + '–' + w.deadline;
+  }
+  // Dispatch the given slot indexes: loading → on time/late against EACH slot's own
+  // wave, lock the counts into that wave's totals, record to the manifest, clear them.
+  function dispatchSlotSet(pad, indices) {
+    ensureSlotArrays(pad);
+    const per = {};
+    const done = [];
+    indices.forEach(i => {
+      const w = slotWaveIdx(pad, i);
+      const st = pad.slots[i];
+      if (w === null || st === 'empty') return;
+      const g = per[w] = per[w] || { on: 0, late: 0 };
+      if (st === 'loading') {
+        if (isWavePast(w)) { pad.slots[i] = 'late'; g.late++; } else { pad.slots[i] = 'dispatched'; g.on++; }
+      } else if (st === 'dispatched') g.on++;
+      else if (st === 'late') g.late++;
+      done.push(i);
+    });
+    recordDispatched(pad, done);
+    Object.keys(per).forEach(k => {
+      const wave = waves[+k];
+      const prev = wave.locked || { dispatched: 0, onTime: 0, late: 0 };
+      wave.locked = {
+        dispatched: prev.dispatched + per[k].on + per[k].late,
+        onTime: prev.onTime + per[k].on,
+        late: prev.late + per[k].late
+      };
+    });
+    const rt = pad.routeType || ROUTE_TYPES[0];
+    done.forEach(i => {
+      pad.slots[i] = 'empty'; pad.routeTypes[i] = rt; pad.routes[i] = '';
+      pad.stages[i] = 'STG.'; pad.stageAuto[i] = false;
+    });
+    return per;
+  }
+  function stepLaneWave(pad, lane) {
+    const w = pad.lanes.wave[lane];
+    if (w === null || w === undefined) return;
+    const n = w + pad.lanes.active.length;
+    pad.lanes.wave[lane] = (n < waves.length) ? n : null;
+  }
+  async function finishLaneChange(pad) {
+    syncPadWaveFromLanes(pad);
+    touchPad(pad);
+    recomputeWaveCounts();
+    cancelPendingSlotSaves(pad);
+    await saveSlotsBulk(pad);     // slots first, then structure (same order as wave-done)
+    saveState();
+    renderEverything();
+  }
+  function dispatchLane(padId, lane) {
+    const pad = getPad(padId);
+    if (!pad || displayMode || !lanesEnabled(pad) || pad.lanes.active.indexOf(lane) === -1) return;
+    ensureLanes(pad);
+    const wIdx = pad.lanes.wave[lane];
+    if (wIdx === null || wIdx === undefined) return;
+    const idxs = [];
+    for (let i = 0; i < pad.capacity; i++) if (laneOfSlot(pad, i) === lane && pad.slots[i] !== 'empty') idxs.push(i);
+    if (!idxs.length) return;
+    const per = dispatchSlotSet(pad, idxs);
+    const p = per[wIdx] || { on: 0, late: 0 };
+    logEvent('Dispatch Lane', pad.name + ' L' + lane, wIdx, `${p.on} on time, ${p.late} late`);
+    stepLaneWave(pad, lane);
+    finishLaneChange(pad);
+  }
+  function dispatchAllLanes(pad) {
+    if (displayMode) return;
+    ensureLanes(pad);
+    const idxs = [];
+    for (let i = 0; i < pad.capacity; i++) if (pad.slots[i] !== 'empty') idxs.push(i);
+    if (!idxs.length) return;
+    const per = dispatchSlotSet(pad, idxs);
+    Object.keys(per).forEach(k => logEvent('Dispatch All', pad.name, +k, `${per[k].on} on time, ${per[k].late} late`));
+    pad.lanes.active.forEach(l => stepLaneWave(pad, l));
+    finishLaneChange(pad);
+  }
+  function setLaneWave(padId, lane, val) {
+    const pad = getPad(padId);
+    if (!pad || !lanesEnabled(pad)) return;
+    pad.lanes.wave[lane] = (val === '' || val == null) ? null : parseInt(val, 10);   // label only
+    syncPadWaveFromLanes(pad);
+    touchPad(pad);
+    recomputeWaveCounts();
+    saveNow();
+    renderEverything();
+  }
+  function setPadLanes(padId, val) {
+    const pad = getPad(padId);
+    if (!pad) return;
+    const nums = (String(val || '').match(/\d+/g) || []).map(Number).filter(n => n >= 1 && n <= 12);
+    const active = nums.filter((n, i) => nums.indexOf(n) === i).sort((a, b) => a - b);
+    const prev = (pad.lanes && Array.isArray(pad.lanes.active)) ? pad.lanes : null;
+    const need = active.length ? Math.max.apply(null, active) : 0;
+    const needGrid = need > 0 && (typeof pad.slotCols !== 'number' || pad.slotCols < need);
+    const cols = needGrid ? need : pad.slotCols;
+    const removed = prev ? prev.active.filter(l => active.indexOf(l) === -1) : [];
+    const loaded = removed.filter(l => pad.slots.some((st, i) => st !== 'empty' && typeof pad.slotCols === 'number' && laneOfSlot(pad, i) === l));
+    const apply = () => {
+      if (!active.length) { pad.lanes = null; }
+      else {
+        const waveMap = {};
+        let last = (pad.waveIdx === null) ? null : pad.waveIdx - 1;
+        active.forEach(l => {
+          if (prev && prev.wave && prev.wave[l] !== undefined) { waveMap[l] = prev.wave[l]; if (waveMap[l] !== null) last = Math.max(last === null ? -1 : last, waveMap[l]); }
+        });
+        active.forEach(l => {
+          if (waveMap[l] !== undefined) return;
+          const n = (last === null) ? null : last + 1;
+          waveMap[l] = (n !== null && n < waves.length) ? n : null;
+          if (n !== null) last = n;
+        });
+        pad.lanes = { active: active, wave: waveMap };
+        if (needGrid) pad.slotCols = cols;
+      }
+      syncPadWaveFromLanes(pad);
+      touchPad(pad);
+      saveNow();
+      renderEverything();
+    };
+    const msgs = [];
+    if (needGrid) msgs.push(`Lanes need a fixed grid — set ${pad.name} to ${cols} columns?`);
+    if (loaded.length) msgs.push(`Lane${loaded.length > 1 ? 's' : ''} ${loaded.join(', ')} still ${loaded.length > 1 ? 'have' : 'has'} drivers. Turn off? They'll go back to the pad's wave.`);
+    if (msgs.length) uiConfirm(msgs.join(' '), apply); else apply();
+  }
+
   // 'late'/overflow pads: dispatch all loading slots, lock the result into the wave's
   // totals, clear the pad, and roll forward to the next wave so it's ready for new stragglers.
   // Other pads: just dispatch their loading slots (Wave Done handles main-pad advancement).
   function dispatchAll(padId) {
     const pad = getPad(padId);
+    if (pad && lanesEnabled(pad)) return dispatchAllLanes(pad);
     if (!pad || pad.waveIdx === null) return;
     const past = isPastDeadline(pad);
 
@@ -2828,10 +3026,11 @@
     // (Overflow/'late' pads lock & clear on Dispatch All, so whatever is still on
     //  them is uncommitted and correctly added on top of locked totals here too.)
     pads.forEach(pad => {
-      if (pad.waveIdx === null) return;
-      const wave = waves[pad.waveIdx];
-      if (!wave) return;
-      pad.slots.forEach(s => {
+      pad.slots.forEach((s, i) => {
+        const wi = slotWaveIdx(pad, i);          // lane wave if the slot is in an active lane
+        if (wi === null) return;
+        const wave = waves[wi];
+        if (!wave) return;
         if (s === 'dispatched') { wave.dispatched++; wave.onTime++; }
         else if (s === 'late')  { wave.dispatched++; wave.late++; }
       });
@@ -2861,6 +3060,7 @@
     grid.innerHTML = '';
 
     pads.forEach(pad => {
+      ensureLanes(pad);
       const card = document.createElement('div');
       card.className = `pad role-${pad.role}`;
       card.dataset.padId = pad.id;
@@ -2965,6 +3165,11 @@
                    value="${pad.slotCols === 'auto' ? '' : (pad.slotCols + 'x' + Math.ceil(pad.capacity / pad.slotCols))}"
                    placeholder="auto (4x6)" onchange="setPadGrid(${pad.id}, this.value)">
           </label>
+          ${(pad.role === 'late' || pad.role === 'extra') ? `<label class="pad-grid-label" title="Columns that run their own wave with a Dispatch Lane button — e.g. 1,4. Blank = off">
+            Lanes
+            <input class="pad-grid-input" value="${pad.lanes && pad.lanes.active ? pad.lanes.active.join(',') : ''}"
+                   placeholder="off (1,4)" onchange="setPadLanes(${pad.id}, this.value)">
+          </label>` : ''}
         </div>
         <div class="pad-meta">
           <span>Wave: <strong>${waveTxt}</strong>${pad.role !== 'stage' ? ` <button class="btn-tiny movewave-btn ${moveWavePadId === pad.id ? 'active' : ''}" onclick="beginMoveWave(${pad.id})" title="Move this pad to a different wave (keeps its loaded drivers)">${moveWavePadId === pad.id ? '✕ cancel' : '⤳ set wave'}</button>` : ''}</span>
@@ -2996,6 +3201,39 @@
       // Lane numbering: number by column position (1..cols per row, restarting
       // each row) driven by the grid's first number. Fixed grid → known now;
       // 'auto' uses a placeholder and is corrected by relabelLanes() after layout.
+      if (lanesEnabled(pad)) {
+        const bar = document.createElement('div');
+        bar.className = 'lane-bar';
+        bar.style.gridTemplateColumns = `repeat(${pad.slotCols}, 1fr)`;
+        for (let c = 1; c <= pad.slotCols; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'lane-cell';
+          if (pad.lanes.active.indexOf(c) !== -1) {
+            const wIdx = pad.lanes.wave[c];
+            const hasW = (wIdx !== null && wIdx !== undefined);
+            const dup = hasW && pad.lanes.active.some(o => o !== c && pad.lanes.wave[o] === wIdx);
+            const sel = document.createElement('select');
+            sel.className = 'lane-wave' + (dup ? ' dup' : '');
+            sel.title = dup ? 'Another lane is on this same wave' : 'Lane ' + c + ' wave (label only — drivers stay put)';
+            sel.disabled = !!displayMode;
+            sel.innerHTML = '<option value="">— none —</option>' + waves.map((w, wi) =>
+              `<option value="${wi}" ${wi === wIdx ? 'selected' : ''}>${laneWindowLabel(wi)}</option>`).join('');
+            sel.onchange = () => setLaneWave(pad.id, c, sel.value);
+            cell.appendChild(sel);
+            if (!displayMode) {
+              const filledInLane = pad.slots.some((st, i) => st !== 'empty' && laneOfSlot(pad, i) === c);
+              const btn = document.createElement('button');
+              btn.className = 'lane-btn';
+              btn.textContent = 'Dispatch Lane ' + c;
+              btn.disabled = !hasW || !filledInLane;
+              btn.onclick = () => dispatchLane(pad.id, c);
+              cell.appendChild(btn);
+            }
+          }
+          bar.appendChild(cell);
+        }
+        slotsDiv.parentNode.insertBefore(bar, slotsDiv);
+      }
       const padColCount = (pad.slotCols && pad.slotCols !== 'auto') ? pad.slotCols : null;
       pad.slots.forEach((state, i) => {
         const lane = padColCount ? ((i % padColCount) + 1) : (i + 1);
@@ -3416,6 +3654,7 @@
       : `Move ${pad.name} to W${wNum}?`;
     uiConfirm(msg, () => {
       pad.waveIdx = waveIdx;
+      if (lanesEnabled(pad)) deriveLaneWaves(pad, waveIdx);   // lanes re-base to the new wave
       pad.timerStartedAt = null;              // re-base the loading timer to the new wave
       touchPad(pad);
       // Keep any staging pad that feeds this one parked a wave ahead.
