@@ -2332,6 +2332,30 @@ function UrlDashboard({ src, title, onBack }) {
   );
 }
 
+// Pad Staging Board wrapper (separate from UrlDashboard so the Pad Dispatch Tracker is untouched).
+function StagingDashboard({ src, title, onBack }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-800 bg-slate-950/95 shrink-0">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" /> Hub
+        </button>
+        <span className="text-slate-200 font-semibold text-sm truncate">{title}</span>
+      </div>
+      <iframe
+        title={title}
+        src={src}
+        allow="fullscreen"
+        allowFullScreen
+        className="flex-1 w-full border-0 bg-white"
+      />
+    </div>
+  );
+}
+
 export default function AnalyticsHub() {
   const [currentView, setCurrentView] = useState('hub');
 
@@ -2356,6 +2380,10 @@ export default function AnalyticsHub() {
 
   if (currentView === 'flex') {
     return <UrlDashboard src="/flex.html" title="Pad Dispatch Tracker" onBack={() => setCurrentView('hub')} />;
+  }
+
+  if (currentView === 'staging') {
+    return <StagingDashboard src="/staging.html" title="Pad Staging Board" onBack={() => setCurrentView('hub')} />;
   }
 
   return (
@@ -2490,6 +2518,26 @@ export default function AnalyticsHub() {
               <span className="px-2.5 py-0.5 bg-amber-900/30 text-amber-400 rounded-full text-xs font-medium">Live Board</span>
               <span className="px-2.5 py-0.5 bg-amber-900/30 text-amber-400 rounded-full text-xs font-medium">Check-in</span>
               <span className="px-2.5 py-0.5 bg-amber-900/30 text-amber-400 rounded-full text-xs font-medium">By Station</span>
+            </div>
+          </button>
+
+          {/* Pad Staging Board Card */}
+          <button
+            onClick={() => setCurrentView('staging')}
+            className="group bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 border border-slate-700 hover:border-rose-500 transition-all duration-300 text-left hover:shadow-lg hover:shadow-rose-500/10 hover:-translate-y-1"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-11 h-11 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center group-hover:bg-rose-500/20 transition-colors">
+                <Eye className="w-5 h-5 text-rose-400" />
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-rose-400 transition-colors" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-1.5 group-hover:text-rose-400 transition-colors">Pad Staging Board</h2>
+            <p className="text-gray-400 text-sm mb-3">Type a route and it lands on the right pad with its staging spot — highest package counts per wave light up red so everyone knows who to help first</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-0.5 bg-rose-900/30 text-rose-400 rounded-full text-xs font-medium">Assign</span>
+              <span className="px-2.5 py-0.5 bg-rose-900/30 text-rose-400 rounded-full text-xs font-medium">By Pad</span>
+              <span className="px-2.5 py-0.5 bg-rose-900/30 text-rose-400 rounded-full text-xs font-medium">TV Display</span>
             </div>
           </button>
         </div>
