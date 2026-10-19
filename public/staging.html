@@ -22,11 +22,14 @@ button.go{background:var(--accent);color:#000;border-color:var(--accent)}button.
 .tab.on::before{content:'';position:absolute;left:10px;right:10px;top:0;height:3px;border-radius:0 0 3px 3px;background:var(--tc,var(--accent))}
 .tab[data-t=pad1]{--tc:var(--pad1)}.tab[data-t=pad2]{--tc:var(--pad2)}
 .tab::after{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--tc,var(--accent));margin-left:9px;opacity:.7}
-#fs{margin-left:auto;margin-bottom:5px;display:none}
+#fs{margin-left:8px;margin-bottom:5px;display:none}
 .panel{background:var(--surface2);border:1px solid var(--border);border-top:none;border-radius:0 0 12px 12px;padding:10px;flex:1;min-height:0;display:flex;flex-direction:column}
 .bar{display:flex;gap:8px;margin-bottom:8px}.bar input{flex:1;font-family:'IBM Plex Mono',monospace;font-size:22px;text-transform:uppercase;min-width:0;background:var(--bg)}
 .bar button{font-size:15px;padding:8px 18px}
 #setup{flex:1;min-height:0;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;display:none}#setup.open{display:block}
+#setupHead{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+#setupHead .chip{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#10b981;border:1px solid #10b981;border-radius:20px;padding:4px 12px}
+#setupHead .go{font-size:18px;padding:10px 26px;margin-left:auto}
 #setup h3{font-family:'Barlow Condensed',sans-serif;font-size:14px;letter-spacing:1.5px;color:var(--accent);margin:10px 0 6px}#setup h3:first-child{margin-top:0}
 #setup .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted)}#setup input[type=number]{width:62px;padding:6px}
 #assignTools{flex:none}
@@ -69,7 +72,7 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
   <button class="tab on" data-t="assign" onclick="setTab('assign')">ASSIGN</button>
   <button class="tab" data-t="pad1" onclick="setTab('pad1')">PAD 1</button>
   <button class="tab" data-t="pad2" onclick="setTab('pad2')">PAD 2</button>
-  <button class="tab" data-t="setup" onclick="setTab('setup')">SETUP</button>
+  <button class="hbtn" style="margin-left:auto;margin-bottom:5px" onclick="setTab('setup')">⚙ Setup</button>
   <button id="fs" onclick="goFull()">⛶ Fullscreen</button>
 </div>
 <div class="panel">
@@ -77,6 +80,7 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
     <div class="bar"><input id="rt" placeholder="Route # (15 or CX15)" autocomplete="off" onkeydown="if(event.key==='Enter')place()"><button class="go" onclick="place()">Place</button><button id="clr" class="bad" style="display:none" onclick="clearSel()">Clear slot</button></div>
   </div>
   <div id="setup">
+      <div id="setupHead"><span class="chip">● NOT POLLING — setup makes no live requests</span><span class="row" style="color:var(--muted);font-size:13px">Board <input id="bn" style="width:120px;padding:6px" onkeydown="if(event.key==='Enter')switchBoard()"> <button onclick="switchBoard()">Switch</button></span><button class="go" onclick="setTab('assign')">Open Board →</button></div>
       <h3>TODAY'S FILES</h3>
       <div class="files">
         <label class="drop" id="dropDop" ondragover="event.preventDefault()" ondrop="event.preventDefault();addFile('dop',event.dataTransfer.files[0])"><b>1 · DAY OF OPS PLAN</b><span>.xlsx — routes, waves, staging, packages</span><em id="stDop">Click or drop a file</em><input type="file" id="fDop" accept=".xlsx,.xls,.csv" onchange="addFile('dop',this.files[0])"></label>
@@ -120,12 +124,15 @@ function amnHTML(edit){return '<h3>AMNESTY LANE<small>late drivers</small></h3>'
 function render(){const a=tab==='assign';$('stopBar').style.display=S.cfg.stopped?'flex':'none';$('stopBtn').style.display=S.cfg.stopped?'none':'';
   $('stage').className=a?'edit':'';$('amn').innerHTML=amnHTML(a);
   $('pads').innerHTML=a?padHTML(1,true)+padHTML(2,true):padHTML(tab==='pad1'?1:2,false);
-  const st=tab==='setup';$('assignTools').style.display=a?'':'none';$('stage').style.display=st?'none':'';$('setup').style.display=st?'block':'none';document.querySelector('.legend').style.display=st?'none':'';$('fs').style.display=st?'none':'inline-block';
+  const st=tab==='setup';document.querySelector('.tabs').style.display=st?'none':'';if(document.activeElement!==$('bn'))$('bn').value=BOARD;$('assignTools').style.display=a?'':'none';$('stage').style.display=st?'none':'';$('setup').style.display=st?'block':'none';document.querySelector('.legend').style.display=st?'none':'';$('fs').style.display=st?'none':'inline-block';
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
   $('clr').style.display=(sel&&(S.slots[sel.p][sel.i]||{}).n)?'':'none';
   $('planInfo').textContent=S.plan.length?S.plan.length+' routes loaded':'no plan loaded'}
 function syncSetup(){if(document.activeElement!==$('stopAt'))$('stopAt').value=S.cfg.stopAt||'';['c1','r1','c2','r2','red'].forEach(k=>{if(document.activeElement!==$(k))$(k).value=S.cfg[k]})}
-function setTab(t){tab=t;sel=null;try{history.replaceState(null,'','#'+t)}catch(e){}render();if(t==='assign')$('rt').focus()}
+function switchBoard(){const v=($('bn').value||'').toUpperCase().replace(/[^A-Z0-9-]/g,'');if(v)location.href='?board='+v+'#setup'}
+function setTab(t){const was=tab;tab=t;sel=null;try{history.replaceState(null,'','#'+t)}catch(e){}render();
+  if(t==='setup'){clearTimeout(timer);pull()}else if(was==='setup')tick();     // setup = no polling; leaving it starts polling with an immediate refresh
+  if(t==='assign')$('rt').focus()}
 function goFull(){const d=document.documentElement;document.body.classList.add('full');(d.requestFullscreen||d.webkitRequestFullscreen||function(){}).call(d)}
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('full')});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('full')});
@@ -170,8 +177,8 @@ function apply(d){if(!d||d.error)return;
     for(const key in mods){const[pp,k]=key.split(':');if(+pp===p&&now-mods[key]<8000){if(S.slots[p][k])nw[k]=S.slots[p][k];else delete nw[k]}}
     S.slots[p]=nw});
   index();render()}
-async function pull(){if(LOCAL){$('st').textContent=BOARD+' · LOCAL TEST (not saved)';return}try{const r=await fetch(API+'?board='+BOARD,{cache:'no-store'});apply(await r.json());$('st').textContent=BOARD+' · live'}catch(e){$('st').textContent=BOARD+' · offline'}}
-const h=location.hash.slice(1);if(['assign','pad1','pad2','setup'].includes(h))tab=h;
+async function pull(){if(LOCAL){$('st').textContent=BOARD+' · LOCAL TEST (not saved)';return}try{const r=await fetch(API+'?board='+BOARD,{cache:'no-store'});apply(await r.json());$('st').textContent=BOARD+(tab==='setup'?' · setup — not polling':' · live')}catch(e){$('st').textContent=BOARD+' · offline'}}
+const h=location.hash.slice(1);tab=['assign','pad1','pad2'].includes(h)?h:'setup';   // no link hash → open on Setup (no polling); #pad1 / #pad2 / #assign go straight to a board view
 let timer=null,lastMin=null;
 const nowMin=()=>{const d=new Date();return d.getHours()*60+d.getMinutes()};
 function stopMin(){const m=String(S.cfg.stopAt||'').match(/^(\d{1,2}):(\d{2})$/);return m?(+m[1])*60+ +m[2]:null}
@@ -179,8 +186,8 @@ function stopAll(){if(S.cfg.stopped)return;S.cfg.stopped=true;clearTimeout(timer
 async function resume(){await pull();S.cfg.stopped=false;saveMeta();lastMin=nowMin();tick()}   // pull first so a stale screen can't overwrite a newer plan
 function setStopAt(v){S.cfg.stopAt=v||'';saveMeta()}
 // Same constant 3.5s checking as before. The only change: once the board is flagged "stopped" (by Stop button or the auto-stop time), every screen stops asking.
-function tick(){clearTimeout(timer);if(S.cfg.stopped)return;
+function tick(){clearTimeout(timer);if(S.cfg.stopped||tab==='setup')return;
   const sm=stopMin(),n=nowMin();if(sm!==null&&lastMin!==null&&lastMin<sm&&n>=sm){lastMin=n;stopAll();return}lastMin=n;
   pull().finally(()=>{timer=setTimeout(tick,3500)})}
-syncSetup();index();render();lastMin=nowMin();tick();
+syncSetup();index();render();lastMin=nowMin();if(tab==='setup')pull();else tick();
 </script></body></html>
