@@ -37,6 +37,8 @@ button.go{background:var(--accent);color:#000;border-color:var(--accent)}button.
 .amn .cell{flex:0 0 clamp(90px,12vw,200px)}
 #pads{flex:1;min-height:0;display:flex;gap:14px}
 .pad{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;--pc:var(--pad1)}.pad.p2{--pc:var(--pad2)}
+.ph{flex:none;display:flex;align-items:center;gap:10px;margin-bottom:5px}.ph h2{margin-bottom:0}
+.mini{margin-left:auto;padding:3px 10px;font-size:11px;white-space:nowrap}
 .pad h2{flex:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;letter-spacing:3px;font-size:clamp(18px,2.6vw,38px);line-height:1;margin-bottom:5px;color:var(--pc)}
 .grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--c),1fr);grid-template-rows:repeat(var(--r),1fr);gap:6px}
 .cell{container-type:size;background:var(--surface);border:1px solid var(--border);border-radius:7px;min-width:0;min-height:0;padding:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;text-align:center;overflow:hidden}
@@ -55,10 +57,14 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
 .drop:hover,.drop.over{border-color:var(--accent)}.drop.ok{border-style:solid;border-color:#10b981}
 .drop b{font-family:'Barlow Condensed',sans-serif;letter-spacing:1px;font-size:19px}.drop span{color:var(--muted);font-size:12px}
 .drop em{font-style:normal;font-size:13px;color:var(--muted);word-break:break-all}.drop.ok em{color:#10b981}.drop input{display:none}
+#stopBar{flex:none;display:none;align-items:center;gap:12px;background:var(--red);color:#fff;font-weight:700;padding:8px 14px;border-radius:8px;margin-bottom:8px;font-size:15px}
+#stopBar button{margin-left:auto;background:#fff;color:#000;border-color:#fff}
+.hbtn{padding:6px 14px}.hbtn.stop{color:var(--red);border-color:#7f2a2a}
 #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--red);color:#fff;padding:9px 18px;border-radius:7px;font-size:14px;font-weight:600;display:none;z-index:9}
 #toast.ok{background:#10b981}
 </style></head><body>
-<header><h1>PAD <span>STAGING</span><span id="st"></span></h1></header>
+<div id="stopBar"><span>■ STOPPED — screens are no longer updating</span><button onclick="resume()">Resume</button></div>
+<header><h1>PAD <span>STAGING</span><span id="st"></span></h1><button id="stopBtn" class="hbtn stop" onclick="stopAll()">■ Stop all screens</button></header>
 <div class="tabs">
   <button class="tab on" data-t="assign" onclick="setTab('assign')">ASSIGN</button>
   <button class="tab" data-t="pad1" onclick="setTab('pad1')">PAD 1</button>
@@ -81,6 +87,8 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
       <div class="row">Pad 1 <input type="number" id="c1" min="1" max="12" onchange="cfg('c1',this.value)"> × <input type="number" id="r1" min="1" max="12" onchange="cfg('r1',this.value)">
         &nbsp; Pad 2 <input type="number" id="c2" min="1" max="12" onchange="cfg('c2',this.value)"> × <input type="number" id="r2" min="1" max="12" onchange="cfg('r2',this.value)">
         &nbsp; Red = top <input type="number" id="red" min="0" max="20" onchange="cfg('red',this.value)"> packages per wave</div>
+      <h3>RUN WINDOW (saves Vercel requests)</h3>
+      <div class="row">Auto-stop every screen at <input type="time" id="stopAt" onchange="setStopAt(this.value)"> (blank = off). Stop on any screen stops them all; each screen then needs <b>Resume</b> to start again.</div>
       <h3>CLEAN UP (saves Redis storage)</h3>
       <div class="row"><button class="bad" onclick="clearPads()">Clear both pads</button><button class="bad" onclick="wipe()">Delete ALL of today's data</button></div>
     </div>
@@ -93,7 +101,7 @@ const API='/api/staging',Q=new URLSearchParams(location.search),AM=[100,101,102]
 const BOARD=(Q.get('board')||'MAIN').toUpperCase().replace(/[^A-Z0-9-]/g,'')||'MAIN';
 const LOCAL=Q.get('local')==='1'||location.protocol==='file:';   // local test: nothing is sent to storage
 const $=id=>document.getElementById(id);
-let S={plan:[],cfg:{c1:4,r1:6,c2:4,r2:6,red:3},ts:0,slots:{0:{},1:{},2:{}},map:{},padOf:{},red:new Set()},tab='assign',sel=null,mods={};
+let S={plan:[],cfg:{c1:4,r1:6,c2:4,r2:6,red:3,stopAt:'12:00',stopped:false},ts:0,slots:{0:{},1:{},2:{}},map:{},padOf:{},red:new Set()},tab='assign',sel=null,mods={};
 function msg(t,ok){const e=$('toast');e.textContent=t;e.className=ok?'ok':'';e.style.display='block';clearTimeout(msg.t);msg.t=setTimeout(()=>e.style.display='none',3200)}
 async function post(o){if(LOCAL)return;try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({board:BOARD},o))});if(!r.ok)throw 0}catch(e){msg('Save failed — check connection')}}
 function tm(t){const m=String(t).match(/(\d+):(\d+)\s*(AM|PM)?/i);if(!m)return 0;let h=+m[1];const a=(m[3]||'').toUpperCase();if(a==='PM'&&h!==12)h+=12;if(a==='AM'&&h===12)h=0;return h*60+ +m[2]}
@@ -107,16 +115,16 @@ function cell(p,i,label,edit){const n=(S.slots[p][i]||{}).n||'',r=n&&S.map[n];
   const k='cell'+(n?' f':'')+(n&&S.red.has(n)?' red':'')+(i>=100?' am':'')+(edit&&sel&&sel.p===p&&sel.i===i?' sel':'');
   return `<div class="${k}" ${edit?`onclick="pick(${p},${i})"`:''}><small>${label}</small><b>${n}</b><i>${r?r[2]:(n&&S.plan.length?'?':'')}</i></div>`}
 function padHTML(p,edit){const c=Math.max(1,S.cfg['c'+p]),r=Math.max(1,S.cfg['r'+p]);let h='';for(let i=0;i<c*r;i++)h+=cell(p,i,i+1,edit);
-  return `<section class="pad p${p}" style="--c:${c};--r:${r}"><h2>PAD ${p}</h2><div class="grid">${h}</div></section>`}
+  return `<section class="pad p${p}" style="--c:${c};--r:${r}"><div class="ph"><h2>PAD ${p}</h2>${edit?`<button class="mini bad" onclick="clearPad(${p})">Clear wave</button>`:''}</div><div class="grid">${h}</div></section>`}
 function amnHTML(edit){return '<h3>AMNESTY LANE<small>late drivers</small></h3>'+AM.map((i,k)=>cell(0,i,'A'+(k+1),edit)).join('')}
-function render(){const a=tab==='assign';
+function render(){const a=tab==='assign';$('stopBar').style.display=S.cfg.stopped?'flex':'none';$('stopBtn').style.display=S.cfg.stopped?'none':'';
   $('stage').className=a?'edit':'';$('amn').innerHTML=amnHTML(a);
   $('pads').innerHTML=a?padHTML(1,true)+padHTML(2,true):padHTML(tab==='pad1'?1:2,false);
   const st=tab==='setup';$('assignTools').style.display=a?'':'none';$('stage').style.display=st?'none':'';$('setup').style.display=st?'block':'none';document.querySelector('.legend').style.display=st?'none':'';$('fs').style.display=st?'none':'inline-block';
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
   $('clr').style.display=(sel&&(S.slots[sel.p][sel.i]||{}).n)?'':'none';
   $('planInfo').textContent=S.plan.length?S.plan.length+' routes loaded':'no plan loaded'}
-function syncSetup(){['c1','r1','c2','r2','red'].forEach(k=>{if(document.activeElement!==$(k))$(k).value=S.cfg[k]})}
+function syncSetup(){if(document.activeElement!==$('stopAt'))$('stopAt').value=S.cfg.stopAt||'';['c1','r1','c2','r2','red'].forEach(k=>{if(document.activeElement!==$(k))$(k).value=S.cfg[k]})}
 function setTab(t){tab=t;sel=null;try{history.replaceState(null,'','#'+t)}catch(e){}render();if(t==='assign')$('rt').focus()}
 function goFull(){const d=document.documentElement;document.body.classList.add('full');(d.requestFullscreen||d.webkitRequestFullscreen||function(){}).call(d)}
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('full')});
@@ -124,6 +132,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classL
 function pick(p,i){sel=(sel&&sel.p===p&&sel.i===i)?null:{p,i};render();$('rt').focus()}
 function setSlot(p,i,n){const m=Date.now();if(n)S.slots[p][i]={n,m};else delete S.slots[p][i];mods[p+':'+i]=m;post({type:'slot',padId:p,i,slot:{n,m}})}
 function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
+  if(S.cfg.stopped){msg('Board is stopped — press Resume first');return}
   if(!S.plan.length){msg("Load today's plan first (SETUP tab)");return}
   if(!S.map[n]){msg(n+" isn't in today's plan");return}
   for(const p of [0,1,2])for(const k in S.slots[p])if(S.slots[p][k].n===n&&!(sel&&sel.p===p&&sel.i===+k)){msg(n+' is already on '+(p?'Pad '+p:'the amnesty lane'));return}
@@ -131,7 +140,7 @@ function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
   if(sel){p=sel.p;i=sel.i}else{p=S.padOf[n]||1;const mx=S.cfg['c'+p]*S.cfg['r'+p];i=null;for(let k=0;k<mx;k++)if(!(S.slots[p][k]||{}).n){i=k;break}
     if(i===null){msg('Pad '+p+' is full — tap a slot to replace one');return}}
   setSlot(p,i,n);inp.value='';sel=null;render();msg(n+' → '+(p?'PAD '+p:'AMNESTY')+' · '+S.map[n][2],true)}
-function clearSel(){if(!sel)return;setSlot(sel.p,sel.i,'');sel=null;render()}
+function clearSel(){if(!sel)return;if(S.cfg.stopped){msg('Board is stopped — press Resume first');return}setSlot(sel.p,sel.i,'');sel=null;render()}
 function saveMeta(){S.ts=Date.now();index();render();syncSetup();post({type:'meta',meta:{_ts:S.ts,plan:S.plan,cfg:S.cfg}})}
 function cfg(k,v){v=Math.max(0,Math.min(k==='red'?20:12,parseInt(v)||0));if(k!=='red')v=Math.max(1,v);S.cfg[k]=v;saveMeta()}
 function wave(v){if(typeof v==='number'&&v>=0&&v<1){const m=Math.round(v*1440),h=Math.floor(m/60);return String((h%12)||12).padStart(2,'0')+':'+String(m%60).padStart(2,'0')+(h<12?' AM':' PM')}return String(v||'').trim()}
@@ -149,6 +158,8 @@ function buildPlan(){const dop=RAW.dop,da=RAW.da;
   const dm={};if(da&&da.length){const a=col(da[0],['routecode','route']),b=col(da[0],['numpackages','packages']);if(a&&b)da.forEach(r=>dm[String(r[a]).trim().toUpperCase()]=+r[b]||0)}
   S.plan=dop.filter(r=>String(r[rc]).trim()).map(r=>{const c=String(r[rc]).trim().toUpperCase();return[c,wave(r[wc]),String(r[sc]||'').trim(),(pc&&+r[pc])||dm[c]||0]});
   saveMeta();msg('Loaded '+S.plan.length+' routes',true)}
+async function clearPad(p){if(S.cfg.stopped){msg('Board is stopped — press Resume first');return}if(!confirm('Clear all routes on Pad '+p+'? (amnesty lane stays)'))return;
+  const now=Date.now();for(const k in S.slots[p])mods[p+':'+k]=now;S.slots[p]={};if(sel&&sel.p===p)sel=null;render();await post({type:'clearpad',padId:p})}
 async function clearPads(){if(!confirm("Clear all routes from both pads? (keeps today's plan)"))return;await post({type:'clearslots'});S.slots={0:{},1:{},2:{}};mods={};sel=null;render()}
 async function wipe(){if(!confirm("Delete ALL of today's data (plan + both pads) from storage?"))return;await post({type:'reset'});S.plan=[];S.ts=0;S.slots={0:{},1:{},2:{}};mods={};sel=null;resetDrops();index();render();msg('Deleted',true)}
 function apply(d){if(!d||d.error)return;
@@ -161,5 +172,15 @@ function apply(d){if(!d||d.error)return;
   index();render()}
 async function pull(){if(LOCAL){$('st').textContent=BOARD+' · LOCAL TEST (not saved)';return}try{const r=await fetch(API+'?board='+BOARD,{cache:'no-store'});apply(await r.json());$('st').textContent=BOARD+' · live'}catch(e){$('st').textContent=BOARD+' · offline'}}
 const h=location.hash.slice(1);if(['assign','pad1','pad2','setup'].includes(h))tab=h;
-syncSetup();index();render();pull();setInterval(pull,3500);
+let timer=null,lastMin=null;
+const nowMin=()=>{const d=new Date();return d.getHours()*60+d.getMinutes()};
+function stopMin(){const m=String(S.cfg.stopAt||'').match(/^(\d{1,2}):(\d{2})$/);return m?(+m[1])*60+ +m[2]:null}
+function stopAll(){if(S.cfg.stopped)return;S.cfg.stopped=true;clearTimeout(timer);saveMeta();msg('Stopped — all screens will stop',true)}
+async function resume(){await pull();S.cfg.stopped=false;saveMeta();lastMin=nowMin();tick()}   // pull first so a stale screen can't overwrite a newer plan
+function setStopAt(v){S.cfg.stopAt=v||'';saveMeta()}
+// Same constant 3.5s checking as before. The only change: once the board is flagged "stopped" (by Stop button or the auto-stop time), every screen stops asking.
+function tick(){clearTimeout(timer);if(S.cfg.stopped)return;
+  const sm=stopMin(),n=nowMin();if(sm!==null&&lastMin!==null&&lastMin<sm&&n>=sm){lastMin=n;stopAll();return}lastMin=n;
+  pull().finally(()=>{timer=setTimeout(tick,3500)})}
+syncSetup();index();render();lastMin=nowMin();tick();
 </script></body></html>
