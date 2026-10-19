@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pad Staging Board</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#0d0f14;--surface:#161921;--surface2:#1e2230;--border:#2a2f3d;--text:#e8eaf0;--muted:#6b7280;--accent:#f59e0b;--pad1:#3b82f6;--pad2:#a855f7;--red:#ef4444}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden;padding:8px 12px}
+header{flex:none;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+h1{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;letter-spacing:2px}h1 span{color:var(--accent)}
+#st{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);margin-left:10px;font-weight:400;letter-spacing:0}
+button,input{font-family:inherit;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px}
+button{cursor:pointer;font-weight:600}button:hover{border-color:var(--accent)}
+button.go{background:var(--accent);color:#000;border-color:var(--accent)}button.bad{color:var(--red);border-color:#7f2a2a}
+/* Chrome-style tabs */
+.tabs{flex:none;display:flex;align-items:flex-end;gap:3px;padding:0 6px;border-bottom:1px solid var(--border)}
+.tab{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:19px;letter-spacing:1.5px;padding:9px 26px;background:var(--surface);color:var(--muted);border:1px solid var(--border);border-bottom:none;border-radius:11px 11px 0 0;margin-bottom:-1px;position:relative;top:2px}
+.tab:hover{color:var(--text);border-color:var(--border)}
+.tab.on{background:var(--surface2);color:var(--text);top:1px;padding-bottom:11px;z-index:2}
+.tab.on::before{content:'';position:absolute;left:10px;right:10px;top:0;height:3px;border-radius:0 0 3px 3px;background:var(--tc,var(--accent))}
+.tab[data-t=pad1]{--tc:var(--pad1)}.tab[data-t=pad2]{--tc:var(--pad2)}
+.tab::after{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--tc,var(--accent));margin-left:9px;opacity:.7}
+#fs{margin-left:auto;margin-bottom:5px;display:none}
+.panel{background:var(--surface2);border:1px solid var(--border);border-top:none;border-radius:0 0 12px 12px;padding:10px;flex:1;min-height:0;display:flex;flex-direction:column}
+.bar{display:flex;gap:8px;margin-bottom:8px}.bar input{flex:1;font-family:'IBM Plex Mono',monospace;font-size:22px;text-transform:uppercase;min-width:0;background:var(--bg)}
+.bar button{font-size:15px;padding:8px 18px}
+#setup{flex:1;min-height:0;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;display:none}#setup.open{display:block}
+#setup h3{font-family:'Barlow Condensed',sans-serif;font-size:14px;letter-spacing:1.5px;color:var(--accent);margin:10px 0 6px}#setup h3:first-child{margin-top:0}
+#setup .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted)}#setup input[type=number]{width:62px;padding:6px}
+#assignTools{flex:none}
+#stage{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.amn{flex:none;display:flex;align-items:stretch;gap:6px;height:clamp(46px,10vh,110px)}
+.amn h3{align-self:center;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:clamp(12px,1.6vw,20px);letter-spacing:2px;color:var(--accent);margin-right:6px;line-height:1.1}
+.amn h3 small{display:block;font-family:'IBM Plex Mono',monospace;font-size:.6em;font-weight:400;color:var(--muted);letter-spacing:0}
+.amn .cell{flex:0 0 clamp(90px,12vw,200px)}
+#pads{flex:1;min-height:0;display:flex;gap:14px}
+.pad{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;--pc:var(--pad1)}.pad.p2{--pc:var(--pad2)}
+.pad h2{flex:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;letter-spacing:3px;font-size:clamp(18px,2.6vw,38px);line-height:1;margin-bottom:5px;color:var(--pc)}
+.grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--c),1fr);grid-template-rows:repeat(var(--r),1fr);gap:6px}
+.cell{container-type:size;background:var(--surface);border:1px solid var(--border);border-radius:7px;min-width:0;min-height:0;padding:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;text-align:center;overflow:hidden}
+.cell small{position:absolute;top:2px;left:5px;font-family:'IBM Plex Mono',monospace;font-size:clamp(7px,12cqmin,14px);color:var(--muted)}
+.cell b{font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:clamp(11px,32cqmin,64px);line-height:1.1}
+.cell i{font-style:normal;font-family:'IBM Plex Mono',monospace;font-size:clamp(8px,17cqmin,30px);color:var(--muted)}
+.cell.am{border-color:var(--accent);border-style:dashed}.cell.am small{color:var(--accent)}
+.cell.f{background:color-mix(in srgb,var(--pc,var(--accent)) 22%,var(--surface));border-color:var(--pc,var(--accent))}.cell.f i{color:var(--text);opacity:.75}
+.cell.red{background:rgba(239,68,68,.34);border-color:var(--red)}
+.cell.sel{outline:3px solid var(--accent);outline-offset:1px}
+.edit .cell{cursor:pointer}
+.legend{flex:none;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-top:6px}.legend em{font-style:normal;color:var(--red)}.legend u{text-decoration:none;color:var(--accent)}
+body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.full .panel{border:none;background:var(--bg);padding:0}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--red);color:#fff;padding:9px 18px;border-radius:7px;font-size:14px;font-weight:600;display:none;z-index:9}
+#toast.ok{background:#10b981}
+</style></head><body>
+<header><h1>PAD <span>STAGING</span><span id="st"></span></h1></header>
+<div class="tabs">
+  <button class="tab on" data-t="assign" onclick="setTab('assign')">ASSIGN</button>
+  <button class="tab" data-t="pad1" onclick="setTab('pad1')">PAD 1</button>
+  <button class="tab" data-t="pad2" onclick="setTab('pad2')">PAD 2</button>
+  <button class="tab" data-t="setup" onclick="setTab('setup')">SETUP</button>
+  <button id="fs" onclick="goFull()">⛶ Fullscreen</button>
+</div>
+<div class="panel">
+  <div id="assignTools">
+    <div class="bar"><input id="rt" placeholder="Route # (15 or CX15)" autocomplete="off" onkeydown="if(event.key==='Enter')place()"><button class="go" onclick="place()">Place</button><button id="clr" class="bad" style="display:none" onclick="clearSel()">Clear slot</button></div>
+  </div>
+  <div id="setup">
+      <h3>TODAY'S FILES</h3>
+      <div class="row"><input type="file" id="files" multiple accept=".xlsx,.xls,.csv" onchange="loadFiles(this.files)"><span id="planInfo"></span></div>
+      <div class="row" style="margin-top:4px">Day of Ops Plan (.xlsx) + optional DA export (.csv). Driver names are never read or stored.</div>
+      <h3>GRID SIZE (columns × rows)</h3>
+      <div class="row">Pad 1 <input type="number" id="c1" min="1" max="12" onchange="cfg('c1',this.value)"> × <input type="number" id="r1" min="1" max="12" onchange="cfg('r1',this.value)">
+        &nbsp; Pad 2 <input type="number" id="c2" min="1" max="12" onchange="cfg('c2',this.value)"> × <input type="number" id="r2" min="1" max="12" onchange="cfg('r2',this.value)">
+        &nbsp; Red = top <input type="number" id="red" min="0" max="20" onchange="cfg('red',this.value)"> packages per wave</div>
+      <h3>CLEAN UP (saves Redis storage)</h3>
+      <div class="row"><button class="bad" onclick="clearPads()">Clear both pads</button><button class="bad" onclick="wipe()">Delete ALL of today's data</button></div>
+    </div>
+  <div id="stage"><div class="amn" id="amn"></div><div id="pads"></div></div>
+  <div class="legend"><em>■ RED</em> = highest package counts in that wave &nbsp; <u>▭ AMBER</u> = amnesty lane (late drivers)</div>
+</div>
+<div id="toast"></div>
+<script>
+const API='/api/staging',Q=new URLSearchParams(location.search),AM=[100,101,102];
+const BOARD=(Q.get('board')||'MAIN').toUpperCase().replace(/[^A-Z0-9-]/g,'')||'MAIN';
+const LOCAL=Q.get('local')==='1'||location.protocol==='file:';   // local test: nothing is sent to storage
+const $=id=>document.getElementById(id);
+let S={plan:[],cfg:{c1:4,r1:6,c2:4,r2:6,red:3},ts:0,slots:{0:{},1:{},2:{}},map:{},padOf:{},red:new Set()},tab='assign',sel=null,mods={};
+function msg(t,ok){const e=$('toast');e.textContent=t;e.className=ok?'ok':'';e.style.display='block';clearTimeout(msg.t);msg.t=setTimeout(()=>e.style.display='none',3200)}
+async function post(o){if(LOCAL)return;try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({board:BOARD},o))});if(!r.ok)throw 0}catch(e){msg('Save failed — check connection')}}
+function tm(t){const m=String(t).match(/(\d+):(\d+)\s*(AM|PM)?/i);if(!m)return 0;let h=+m[1];const a=(m[3]||'').toUpperCase();if(a==='PM'&&h!==12)h+=12;if(a==='AM'&&h===12)h=0;return h*60+ +m[2]}
+// Same split as the DOP Planner: sort the wave times, alternate pads, first wave = PAD 2.  Red = top N packages inside each wave.
+function index(){S.map={};S.padOf={};S.red=new Set();const w={};
+  S.plan.forEach(r=>{S.map[r[0]]=r;(w[r[1]]=w[r[1]]||[]).push(r)});
+  Object.keys(w).sort((a,b)=>tm(a)-tm(b)).forEach((k,i)=>{const p=i%2===0?2:1;w[k].forEach(r=>S.padOf[r[0]]=p);
+    if(S.cfg.red>0)w[k].slice().sort((x,y)=>y[3]-x[3]).slice(0,S.cfg.red).forEach(r=>S.red.add(r[0]))})}
+function norm(v){v=String(v||'').trim().toUpperCase().replace(/\s+/g,'');return /^\d+$/.test(v)?'CX'+v:v}
+function cell(p,i,label,edit){const n=(S.slots[p][i]||{}).n||'',r=n&&S.map[n];
+  const k='cell'+(n?' f':'')+(n&&S.red.has(n)?' red':'')+(i>=100?' am':'')+(edit&&sel&&sel.p===p&&sel.i===i?' sel':'');
+  return `<div class="${k}" ${edit?`onclick="pick(${p},${i})"`:''}><small>${label}</small><b>${n}</b><i>${r?r[2]:(n&&S.plan.length?'?':'')}</i></div>`}
+function padHTML(p,edit){const c=Math.max(1,S.cfg['c'+p]),r=Math.max(1,S.cfg['r'+p]);let h='';for(let i=0;i<c*r;i++)h+=cell(p,i,i+1,edit);
+  return `<section class="pad p${p}" style="--c:${c};--r:${r}"><h2>PAD ${p}</h2><div class="grid">${h}</div></section>`}
+function amnHTML(edit){return '<h3>AMNESTY LANE<small>late drivers</small></h3>'+AM.map((i,k)=>cell(0,i,'A'+(k+1),edit)).join('')}
+function render(){const a=tab==='assign';
+  $('stage').className=a?'edit':'';$('amn').innerHTML=amnHTML(a);
+  $('pads').innerHTML=a?padHTML(1,true)+padHTML(2,true):padHTML(tab==='pad1'?1:2,false);
+  const st=tab==='setup';$('assignTools').style.display=a?'':'none';$('stage').style.display=st?'none':'';$('setup').style.display=st?'block':'none';document.querySelector('.legend').style.display=st?'none':'';$('fs').style.display=st?'none':'inline-block';
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+  $('clr').style.display=(sel&&(S.slots[sel.p][sel.i]||{}).n)?'':'none';
+  $('planInfo').textContent=S.plan.length?S.plan.length+' routes loaded':'no plan loaded'}
+function syncSetup(){['c1','r1','c2','r2','red'].forEach(k=>{if(document.activeElement!==$(k))$(k).value=S.cfg[k]})}
+function setTab(t){tab=t;sel=null;try{history.replaceState(null,'','#'+t)}catch(e){}render();if(t==='assign')$('rt').focus()}
+function goFull(){const d=document.documentElement;document.body.classList.add('full');(d.requestFullscreen||d.webkitRequestFullscreen||function(){}).call(d)}
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('full')});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('full')});
+function pick(p,i){sel=(sel&&sel.p===p&&sel.i===i)?null:{p,i};render();$('rt').focus()}
+function setSlot(p,i,n){const m=Date.now();if(n)S.slots[p][i]={n,m};else delete S.slots[p][i];mods[p+':'+i]=m;post({type:'slot',padId:p,i,slot:{n,m}})}
+function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
+  if(!S.plan.length){msg("Load today's plan first (SETUP tab)");return}
+  if(!S.map[n]){msg(n+" isn't in today's plan");return}
+  for(const p of [0,1,2])for(const k in S.slots[p])if(S.slots[p][k].n===n&&!(sel&&sel.p===p&&sel.i===+k)){msg(n+' is already on '+(p?'Pad '+p:'the amnesty lane'));return}
+  let p,i;
+  if(sel){p=sel.p;i=sel.i}else{p=S.padOf[n]||1;const mx=S.cfg['c'+p]*S.cfg['r'+p];i=null;for(let k=0;k<mx;k++)if(!(S.slots[p][k]||{}).n){i=k;break}
+    if(i===null){msg('Pad '+p+' is full — tap a slot to replace one');return}}
+  setSlot(p,i,n);inp.value='';sel=null;render();msg(n+' → '+(p?'PAD '+p:'AMNESTY')+' · '+S.map[n][2],true)}
+function clearSel(){if(!sel)return;setSlot(sel.p,sel.i,'');sel=null;render()}
+function saveMeta(){S.ts=Date.now();index();render();syncSetup();post({type:'meta',meta:{_ts:S.ts,plan:S.plan,cfg:S.cfg}})}
+function cfg(k,v){v=Math.max(0,Math.min(k==='red'?20:12,parseInt(v)||0));if(k!=='red')v=Math.max(1,v);S.cfg[k]=v;saveMeta()}
+function wave(v){if(typeof v==='number'&&v>=0&&v<1){const m=Math.round(v*1440),h=Math.floor(m/60);return String((h%12)||12).padStart(2,'0')+':'+String(m%60).padStart(2,'0')+(h<12?' AM':' PM')}return String(v||'').trim()}
+async function loadFiles(fl){let dop=null,da=null;
+  for(const f of fl){const wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});const j=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});if(/\.csv$/i.test(f.name))da=j;else dop=j}
+  if(!dop||!dop.length){msg('Add the Day of Ops Plan (.xlsx)');return}
+  const col=(o,c)=>{const ks=Object.keys(o||{});for(const x of c){const k=ks.find(k=>k.toLowerCase().replace(/[\s_]/g,'')===x);if(k)return k}return null};
+  const rc=col(dop[0],['routecode','route']),wc=col(dop[0],['wave','wavetime']),sc=col(dop[0],['staginglocation','staging']),pc=col(dop[0],['numpackages','packages']);
+  if(!rc||!wc||!sc){msg('Could not find Route Code / Wave / Staging Location columns');return}
+  const dm={};if(da&&da.length){const a=col(da[0],['routecode','route']),b=col(da[0],['numpackages','packages']);if(a&&b)da.forEach(r=>dm[String(r[a]).trim().toUpperCase()]=+r[b]||0)}
+  S.plan=dop.filter(r=>String(r[rc]).trim()).map(r=>{const c=String(r[rc]).trim().toUpperCase();return[c,wave(r[wc]),String(r[sc]||'').trim(),(pc&&+r[pc])||dm[c]||0]});
+  saveMeta();msg('Loaded '+S.plan.length+' routes',true);$('files').value=''}
+async function clearPads(){if(!confirm("Clear all routes from both pads? (keeps today's plan)"))return;await post({type:'clearslots'});S.slots={0:{},1:{},2:{}};mods={};sel=null;render()}
+async function wipe(){if(!confirm("Delete ALL of today's data (plan + both pads) from storage?"))return;await post({type:'reset'});S.plan=[];S.ts=0;S.slots={0:{},1:{},2:{}};mods={};sel=null;index();render();msg('Deleted',true)}
+function apply(d){if(!d||d.error)return;
+  if(d.meta){if(d.meta._ts>S.ts){S.plan=d.meta.plan||[];S.cfg=Object.assign(S.cfg,d.meta.cfg||{});S.ts=d.meta._ts;syncSetup()}}
+  else if(S.ts&&Date.now()-S.ts>8000){S.plan=[];S.ts=0}
+  const now=Date.now();
+  [0,1,2].forEach(p=>{const nw=Object.assign({},(d.slots||{})[p]||{});
+    for(const key in mods){const[pp,k]=key.split(':');if(+pp===p&&now-mods[key]<8000){if(S.slots[p][k])nw[k]=S.slots[p][k];else delete nw[k]}}
+    S.slots[p]=nw});
+  index();render()}
+async function pull(){if(LOCAL){$('st').textContent=BOARD+' · LOCAL TEST (not saved)';return}try{const r=await fetch(API+'?board='+BOARD,{cache:'no-store'});apply(await r.json());$('st').textContent=BOARD+' · live'}catch(e){$('st').textContent=BOARD+' · offline'}}
+const h=location.hash.slice(1);if(['assign','pad1','pad2','setup'].includes(h))tab=h;
+syncSetup();index();render();pull();setInterval(pull,3500);
+</script></body></html>
