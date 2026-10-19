@@ -50,6 +50,11 @@ button.go{background:var(--accent);color:#000;border-color:var(--accent)}button.
 .edit .cell{cursor:pointer}
 .legend{flex:none;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-top:6px}.legend em{font-style:normal;color:var(--red)}.legend u{text-decoration:none;color:var(--accent)}
 body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.full .panel{border:none;background:var(--bg);padding:0}
+#setup .files{display:flex;gap:12px;flex-wrap:wrap}
+.drop{flex:1;min-width:250px;border:2px dashed var(--border);border-radius:10px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:4px;background:var(--bg)}
+.drop:hover,.drop.over{border-color:var(--accent)}.drop.ok{border-style:solid;border-color:#10b981}
+.drop b{font-family:'Barlow Condensed',sans-serif;letter-spacing:1px;font-size:19px}.drop span{color:var(--muted);font-size:12px}
+.drop em{font-style:normal;font-size:13px;color:var(--muted);word-break:break-all}.drop.ok em{color:#10b981}.drop input{display:none}
 #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--red);color:#fff;padding:9px 18px;border-radius:7px;font-size:14px;font-weight:600;display:none;z-index:9}
 #toast.ok{background:#10b981}
 </style></head><body>
@@ -67,8 +72,11 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
   </div>
   <div id="setup">
       <h3>TODAY'S FILES</h3>
-      <div class="row"><input type="file" id="files" multiple accept=".xlsx,.xls,.csv" onchange="loadFiles(this.files)"><span id="planInfo"></span></div>
-      <div class="row" style="margin-top:4px">Day of Ops Plan (.xlsx) + optional DA export (.csv). Driver names are never read or stored.</div>
+      <div class="files">
+        <label class="drop" id="dropDop" ondragover="event.preventDefault()" ondrop="event.preventDefault();addFile('dop',event.dataTransfer.files[0])"><b>1 · DAY OF OPS PLAN</b><span>.xlsx — routes, waves, staging, packages</span><em id="stDop">Click or drop a file</em><input type="file" id="fDop" accept=".xlsx,.xls,.csv" onchange="addFile('dop',this.files[0])"></label>
+        <label class="drop" id="dropDa" ondragover="event.preventDefault()" ondrop="event.preventDefault();addFile('da',event.dataTransfer.files[0])"><b>2 · DA ASSIGNMENT EXPORT</b><span>.csv — backup for package counts</span><em id="stDa">Click or drop a file</em><input type="file" id="fDa" accept=".csv,.xlsx,.xls" onchange="addFile('da',this.files[0])"></label>
+      </div>
+      <div class="row" style="margin-top:8px"><span id="planInfo"></span>&nbsp;·&nbsp;Driver names are never read or stored.</div>
       <h3>GRID SIZE (columns × rows)</h3>
       <div class="row">Pad 1 <input type="number" id="c1" min="1" max="12" onchange="cfg('c1',this.value)"> × <input type="number" id="r1" min="1" max="12" onchange="cfg('r1',this.value)">
         &nbsp; Pad 2 <input type="number" id="c2" min="1" max="12" onchange="cfg('c2',this.value)"> × <input type="number" id="r2" min="1" max="12" onchange="cfg('r2',this.value)">
@@ -127,17 +135,22 @@ function clearSel(){if(!sel)return;setSlot(sel.p,sel.i,'');sel=null;render()}
 function saveMeta(){S.ts=Date.now();index();render();syncSetup();post({type:'meta',meta:{_ts:S.ts,plan:S.plan,cfg:S.cfg}})}
 function cfg(k,v){v=Math.max(0,Math.min(k==='red'?20:12,parseInt(v)||0));if(k!=='red')v=Math.max(1,v);S.cfg[k]=v;saveMeta()}
 function wave(v){if(typeof v==='number'&&v>=0&&v<1){const m=Math.round(v*1440),h=Math.floor(m/60);return String((h%12)||12).padStart(2,'0')+':'+String(m%60).padStart(2,'0')+(h<12?' AM':' PM')}return String(v||'').trim()}
-async function loadFiles(fl){let dop=null,da=null;
-  for(const f of fl){const wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});const j=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});if(/\.csv$/i.test(f.name))da=j;else dop=j}
-  if(!dop||!dop.length){msg('Add the Day of Ops Plan (.xlsx)');return}
+const RAW={dop:null,da:null};
+function resetDrops(){RAW.dop=RAW.da=null;[['dop','stDop','dropDop'],['da','stDa','dropDa']].forEach(x=>{$(x[1]).textContent='Click or drop a file';$(x[2]).classList.remove('ok')})}
+async function addFile(k,f){if(!f)return;
+  try{const wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});RAW[k]=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''})}catch(e){msg("Couldn't read that file");return}
+  const id=k==='dop'?['stDop','dropDop','fDop']:['stDa','dropDa','fDa'];
+  $(id[0]).textContent='✓ '+f.name+' — '+RAW[k].length+' rows';$(id[1]).classList.add('ok');$(id[2]).value='';buildPlan()}
+function buildPlan(){const dop=RAW.dop,da=RAW.da;
+  if(!dop||!dop.length){if(da)msg('Now add the Day of Ops Plan (.xlsx)');return}
   const col=(o,c)=>{const ks=Object.keys(o||{});for(const x of c){const k=ks.find(k=>k.toLowerCase().replace(/[\s_]/g,'')===x);if(k)return k}return null};
   const rc=col(dop[0],['routecode','route']),wc=col(dop[0],['wave','wavetime']),sc=col(dop[0],['staginglocation','staging']),pc=col(dop[0],['numpackages','packages']);
-  if(!rc||!wc||!sc){msg('Could not find Route Code / Wave / Staging Location columns');return}
+  if(!rc||!wc||!sc){msg('Could not find Route Code / Wave / Staging Location columns in the plan');return}
   const dm={};if(da&&da.length){const a=col(da[0],['routecode','route']),b=col(da[0],['numpackages','packages']);if(a&&b)da.forEach(r=>dm[String(r[a]).trim().toUpperCase()]=+r[b]||0)}
   S.plan=dop.filter(r=>String(r[rc]).trim()).map(r=>{const c=String(r[rc]).trim().toUpperCase();return[c,wave(r[wc]),String(r[sc]||'').trim(),(pc&&+r[pc])||dm[c]||0]});
-  saveMeta();msg('Loaded '+S.plan.length+' routes',true);$('files').value=''}
+  saveMeta();msg('Loaded '+S.plan.length+' routes',true)}
 async function clearPads(){if(!confirm("Clear all routes from both pads? (keeps today's plan)"))return;await post({type:'clearslots'});S.slots={0:{},1:{},2:{}};mods={};sel=null;render()}
-async function wipe(){if(!confirm("Delete ALL of today's data (plan + both pads) from storage?"))return;await post({type:'reset'});S.plan=[];S.ts=0;S.slots={0:{},1:{},2:{}};mods={};sel=null;index();render();msg('Deleted',true)}
+async function wipe(){if(!confirm("Delete ALL of today's data (plan + both pads) from storage?"))return;await post({type:'reset'});S.plan=[];S.ts=0;S.slots={0:{},1:{},2:{}};mods={};sel=null;resetDrops();index();render();msg('Deleted',true)}
 function apply(d){if(!d||d.error)return;
   if(d.meta){if(d.meta._ts>S.ts){S.plan=d.meta.plan||[];S.cfg=Object.assign(S.cfg,d.meta.cfg||{});S.ts=d.meta._ts;syncSetup()}}
   else if(S.ts&&Date.now()-S.ts>8000){S.plan=[];S.ts=0}
