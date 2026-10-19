@@ -89,6 +89,12 @@ module.exports = async (req, res) => {
         const fields = (await redis.hKeys(key)).filter((f) => f.startsWith("s:"));
         if (fields.length) await redis.hDel(key, fields);
         return res.status(200).json({ ok: true });
+      } else if (body.type === "clearpad") {
+        const p = safeInt(body.padId, 2);
+        if (p === null) return res.status(400).json({ error: "bad pad" });
+        const fields = (await redis.hKeys(key)).filter((f) => f.startsWith("s:" + p + ":"));
+        if (fields.length) await redis.hDel(key, fields);
+        return res.status(200).json({ ok: true });
       } else if (body.type === "reset") {
         await redis.del(key);
         return res.status(200).json({ ok: true });
