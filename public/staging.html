@@ -66,8 +66,8 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
 #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--red);color:#fff;padding:9px 18px;border-radius:7px;font-size:14px;font-weight:600;display:none;z-index:9}
 #toast.ok{background:#10b981}
 </style></head><body>
-<div id="stopBar"><span>■ STOPPED — screens are no longer updating</span><button onclick="resume()">Resume</button></div>
-<header><h1>PAD <span>STAGING</span><span id="st"></span></h1><button id="stopBtn" class="hbtn stop" onclick="stopAll()">■ Stop all screens</button></header>
+<div id="stopBar"><span>■ SESSION ENDED — nothing is updating on any screen</span><button onclick="resume()">Start session</button></div>
+<header><h1>PAD <span>STAGING</span><span id="st"></span></h1><button id="stopBtn" class="hbtn stop" onclick="endSession()">■ End Session</button></header>
 <div class="tabs">
   <button class="tab on" data-t="assign" onclick="setTab('assign')">ASSIGN</button>
   <button class="tab" data-t="pad1" onclick="setTab('pad1')">PAD 1</button>
@@ -92,7 +92,7 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
         &nbsp; Pad 2 <input type="number" id="c2" min="1" max="12" onchange="cfg('c2',this.value)"> × <input type="number" id="r2" min="1" max="12" onchange="cfg('r2',this.value)">
         &nbsp; Red = top <input type="number" id="red" min="0" max="20" onchange="cfg('red',this.value)"> packages per wave</div>
       <h3>RUN WINDOW (saves Vercel requests)</h3>
-      <div class="row">Auto-stop every screen at <input type="time" id="stopAt" onchange="setStopAt(this.value)"> (blank = off). Stop on any screen stops them all; each screen then needs <b>Resume</b> to start again.</div>
+      <div class="row">Auto-end the session at <input type="time" id="stopAt" onchange="setStopAt(this.value)"> (blank = off). <b>End Session</b> on any screen stops them all; each screen then needs <b>Start session</b> to begin again.</div>
       <h3>CLEAN UP (saves Redis storage)</h3>
       <div class="row"><button class="bad" onclick="clearPads()">Clear both pads</button><button class="bad" onclick="wipe()">Delete ALL of today's data</button></div>
     </div>
@@ -139,7 +139,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classL
 function pick(p,i){sel=(sel&&sel.p===p&&sel.i===i)?null:{p,i};render();$('rt').focus()}
 function setSlot(p,i,n){const m=Date.now();if(n)S.slots[p][i]={n,m};else delete S.slots[p][i];mods[p+':'+i]=m;post({type:'slot',padId:p,i,slot:{n,m}})}
 function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
-  if(S.cfg.stopped){msg('Board is stopped — press Resume first');return}
+  if(S.cfg.stopped){msg('Session ended — press Start session first');return}
   if(!S.plan.length){msg("Load today's plan first (SETUP tab)");return}
   if(!S.map[n]){msg(n+" isn't in today's plan");return}
   for(const p of [0,1,2])for(const k in S.slots[p])if(S.slots[p][k].n===n&&!(sel&&sel.p===p&&sel.i===+k)){msg(n+' is already on '+(p?'Pad '+p:'the amnesty lane'));return}
@@ -147,7 +147,7 @@ function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
   if(sel){p=sel.p;i=sel.i}else{p=S.padOf[n]||1;const mx=S.cfg['c'+p]*S.cfg['r'+p];i=null;for(let k=0;k<mx;k++)if(!(S.slots[p][k]||{}).n){i=k;break}
     if(i===null){msg('Pad '+p+' is full — tap a slot to replace one');return}}
   setSlot(p,i,n);inp.value='';sel=null;render();msg(n+' → '+(p?'PAD '+p:'AMNESTY')+' · '+S.map[n][2],true)}
-function clearSel(){if(!sel)return;if(S.cfg.stopped){msg('Board is stopped — press Resume first');return}setSlot(sel.p,sel.i,'');sel=null;render()}
+function clearSel(){if(!sel)return;if(S.cfg.stopped){msg('Session ended — press Start session first');return}setSlot(sel.p,sel.i,'');sel=null;render()}
 function saveMeta(){S.ts=Date.now();index();render();syncSetup();post({type:'meta',meta:{_ts:S.ts,plan:S.plan,cfg:S.cfg}})}
 function cfg(k,v){v=Math.max(0,Math.min(k==='red'?20:12,parseInt(v)||0));if(k!=='red')v=Math.max(1,v);S.cfg[k]=v;saveMeta()}
 function wave(v){if(typeof v==='number'&&v>=0&&v<1){const m=Math.round(v*1440),h=Math.floor(m/60);return String((h%12)||12).padStart(2,'0')+':'+String(m%60).padStart(2,'0')+(h<12?' AM':' PM')}return String(v||'').trim()}
@@ -165,7 +165,7 @@ function buildPlan(){const dop=RAW.dop,da=RAW.da;
   const dm={};if(da&&da.length){const a=col(da[0],['routecode','route']),b=col(da[0],['numpackages','packages']);if(a&&b)da.forEach(r=>dm[String(r[a]).trim().toUpperCase()]=+r[b]||0)}
   S.plan=dop.filter(r=>String(r[rc]).trim()).map(r=>{const c=String(r[rc]).trim().toUpperCase();return[c,wave(r[wc]),String(r[sc]||'').trim(),(pc&&+r[pc])||dm[c]||0]});
   saveMeta();msg('Loaded '+S.plan.length+' routes',true)}
-async function clearPad(p){if(S.cfg.stopped){msg('Board is stopped — press Resume first');return}if(!confirm('Clear all routes on Pad '+p+'? (amnesty lane stays)'))return;
+async function clearPad(p){if(S.cfg.stopped){msg('Session ended — press Start session first');return}if(!confirm('Clear all routes on Pad '+p+'? (amnesty lane stays)'))return;
   const now=Date.now();for(const k in S.slots[p])mods[p+':'+k]=now;S.slots[p]={};if(sel&&sel.p===p)sel=null;render();await post({type:'clearpad',padId:p})}
 async function clearPads(){if(!confirm("Clear all routes from both pads? (keeps today's plan)"))return;await post({type:'clearslots'});S.slots={0:{},1:{},2:{}};mods={};sel=null;render()}
 async function wipe(){if(!confirm("Delete ALL of today's data (plan + both pads) from storage?"))return;await post({type:'reset'});S.plan=[];S.ts=0;S.slots={0:{},1:{},2:{}};mods={};sel=null;resetDrops();index();render();msg('Deleted',true)}
@@ -182,7 +182,8 @@ const h=location.hash.slice(1);tab=['assign','pad1','pad2'].includes(h)?h:'setup
 let timer=null,lastMin=null;
 const nowMin=()=>{const d=new Date();return d.getHours()*60+d.getMinutes()};
 function stopMin(){const m=String(S.cfg.stopAt||'').match(/^(\d{1,2}):(\d{2})$/);return m?(+m[1])*60+ +m[2]:null}
-function stopAll(){if(S.cfg.stopped)return;S.cfg.stopped=true;clearTimeout(timer);saveMeta();msg('Stopped — all screens will stop',true)}
+function stopAll(){if(S.cfg.stopped)return;S.cfg.stopped=true;clearTimeout(timer);saveMeta();msg('Session ended — all screens will stop',true)}
+function endSession(){if(confirm('End the session? Every screen stops updating until someone presses Start session.'))stopAll()}
 async function resume(){await pull();S.cfg.stopped=false;saveMeta();lastMin=nowMin();tick()}   // pull first so a stale screen can't overwrite a newer plan
 function setStopAt(v){S.cfg.stopAt=v||'';saveMeta()}
 // Same constant 3.5s checking as before. The only change: once the board is flagged "stopped" (by Stop button or the auto-stop time), every screen stops asking.
