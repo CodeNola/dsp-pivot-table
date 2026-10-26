@@ -6,7 +6,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
 import _ from 'lodash';
 import { Upload, AlertCircle, X, Plus, ChevronRight, ChevronDown, Download, Eye, EyeOff, Settings, ArrowLeft, BarChart3, Clock, TrendingDown, LayoutGrid, ShieldCheck, Target, Truck, Zap } from 'lucide-react';
-import { WATCHTOWER_HTML_B64, WWSC_HTML_B64 } from './dashboards';
+import { WWSC_HTML_B64 } from './dashboards';
+import { WATCHTOWER_HTML_B64 } from './watchtowerDashboard'; // v7 Watchtower (Dive Deep + Caps + Labor)
 
 // ============================================================
 // COACHING TIPS CONFIGS
