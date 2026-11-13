@@ -41,7 +41,7 @@ button.go{background:var(--accent);color:#000;border-color:var(--accent)}button.
 #pads{flex:1;min-height:0;display:flex;gap:14px}
 .pad{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;--pc:var(--pad1)}.pad.p2{--pc:var(--pad2)}
 .ph{flex:none;display:flex;align-items:center;gap:10px;margin-bottom:5px}.ph h2{margin-bottom:0}
-.mini{margin-left:auto;padding:3px 10px;font-size:11px;white-space:nowrap}
+.mini{margin-left:auto;padding:5px 14px;font-size:13px;white-space:nowrap}
 .pad h2{flex:none;font-family:'Barlow Condensed',sans-serif;font-weight:800;letter-spacing:3px;font-size:clamp(18px,2.6vw,38px);line-height:1;margin-bottom:5px;color:var(--pc)}
 .grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--c),1fr);grid-template-rows:repeat(var(--r),1fr);gap:6px}
 .cell{container-type:size;background:var(--surface);border:1px solid var(--border);border-radius:7px;min-width:0;min-height:0;padding:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;text-align:center;overflow:hidden}
@@ -52,7 +52,12 @@ button.go{background:var(--accent);color:#000;border-color:var(--accent)}button.
 .cell.f{background:color-mix(in srgb,var(--pc,var(--accent)) 22%,var(--surface));border-color:var(--pc,var(--accent))}.cell.f i{color:var(--text);opacity:.75}
 .cell.red{background:rgba(239,68,68,.34);border-color:var(--red)}
 .cell.sel{outline:3px solid var(--accent);outline-offset:1px}
-.edit .cell{cursor:pointer}
+.edit .cell{cursor:pointer;user-select:none;-webkit-user-select:none}
+.edit .cell.f{touch-action:none;cursor:grab}
+.cell.drag{opacity:.35}.cell.over{outline:3px dashed var(--accent);outline-offset:1px}
+#ghost{position:fixed;z-index:20;pointer-events:none;transform:translate(-50%,-50%);background:var(--accent);color:#000;font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:22px;padding:8px 16px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+.lanes{flex:none;display:grid;grid-template-columns:repeat(var(--c),1fr);gap:6px;margin-bottom:4px}
+.lanes div{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:clamp(22px,5.5vh,60px);line-height:1;text-align:center;color:var(--pc)}
 .legend{flex:none;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-top:6px}.legend em{font-style:normal;color:var(--red)}.legend u{text-decoration:none;color:var(--accent)}
 body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.full .panel{border:none;background:var(--bg);padding:0}
 #setup .files{display:flex;gap:12px;flex-wrap:wrap}
@@ -97,7 +102,7 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
       <div class="row"><button class="bad" onclick="clearPads()">Clear both pads</button><button class="bad" onclick="wipe()">Delete ALL of today's data</button></div>
     </div>
   <div id="stage"><div class="amn" id="amn"></div><div id="pads"></div></div>
-  <div class="legend"><em>■ RED</em> = highest package counts in that wave &nbsp; <u>▭ AMBER</u> = amnesty lane (late drivers)</div>
+  <div class="legend"><em>■ RED</em> = highest package counts in that wave &nbsp; <u>▭ AMBER</u> = amnesty lane (late drivers) &nbsp; · &nbsp; drag a route to move it</div>
 </div>
 <div id="toast"></div>
 <script>
@@ -105,7 +110,7 @@ const API='/api/staging',Q=new URLSearchParams(location.search),AM=[100,101,102]
 const BOARD=(Q.get('board')||'MAIN').toUpperCase().replace(/[^A-Z0-9-]/g,'')||'MAIN';
 const LOCAL=Q.get('local')==='1'||location.protocol==='file:';   // local test: nothing is sent to storage
 const $=id=>document.getElementById(id);
-let S={plan:[],cfg:{c1:4,r1:6,c2:4,r2:6,red:3,stopAt:'12:00',stopped:false},ts:0,slots:{0:{},1:{},2:{}},map:{},padOf:{},red:new Set()},tab='assign',sel=null,mods={};
+let S={plan:[],cfg:{c1:4,r1:6,c2:4,r2:6,red:3,stopAt:'12:00',stopped:false},ts:0,slots:{0:{},1:{},2:{}},map:{},padOf:{},red:new Set()},tab='assign',sel=null,mods={},drag=null,dragEnd=0;
 function msg(t,ok){const e=$('toast');e.textContent=t;e.className=ok?'ok':'';e.style.display='block';clearTimeout(msg.t);msg.t=setTimeout(()=>e.style.display='none',3200)}
 async function post(o){if(LOCAL)return;try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({board:BOARD},o))});if(!r.ok)throw 0}catch(e){msg('Save failed — check connection')}}
 function tm(t){const m=String(t).match(/(\d+):(\d+)\s*(AM|PM)?/i);if(!m)return 0;let h=+m[1];const a=(m[3]||'').toUpperCase();if(a==='PM'&&h!==12)h+=12;if(a==='AM'&&h===12)h=0;return h*60+ +m[2]}
@@ -117,11 +122,11 @@ function index(){S.map={};S.padOf={};S.red=new Set();const w={};
 function norm(v){v=String(v||'').trim().toUpperCase().replace(/\s+/g,'');return /^\d+$/.test(v)?'CX'+v:v}
 function cell(p,i,label,edit){const n=(S.slots[p][i]||{}).n||'',r=n&&S.map[n];
   const k='cell'+(n?' f':'')+(n&&S.red.has(n)?' red':'')+(i>=100?' am':'')+(edit&&sel&&sel.p===p&&sel.i===i?' sel':'');
-  return `<div class="${k}" ${edit?`onclick="pick(${p},${i})"`:''}><small>${label}</small><b>${n}</b><i>${r?r[2]:(n&&S.plan.length?'?':'')}</i></div>`}
+  return `<div class="${k}" ${edit?`data-p="${p}" data-i="${i}" onclick="pick(${p},${i})"`:''}><small>${label}</small><b>${n}</b><i>${r?r[2]:(n&&S.plan.length?'?':'')}</i></div>`}
 function padHTML(p,edit){const c=Math.max(1,S.cfg['c'+p]),r=Math.max(1,S.cfg['r'+p]);let h='';for(let i=0;i<c*r;i++)h+=cell(p,i,i+1,edit);
-  return `<section class="pad p${p}" style="--c:${c};--r:${r}"><div class="ph"><h2>PAD ${p}</h2>${edit?`<button class="mini bad" onclick="clearPad(${p})">Clear wave</button>`:''}</div><div class="grid">${h}</div></section>`}
+  return `<section class="pad p${p}" style="--c:${c};--r:${r}"><div class="ph"><h2>PAD ${p}</h2>${edit?`<button class="mini bad" onclick="clearPad(${p})">Clear Pad ${p}</button>`:''}</div><div class="lanes">${Array.from({length:c},(_,k)=>'<div>'+(k+1)+'</div>').join('')}</div><div class="grid">${h}</div></section>`}
 function amnHTML(edit){return '<h3>AMNESTY LANE<small>late drivers</small></h3>'+AM.map((i,k)=>cell(0,i,'A'+(k+1),edit)).join('')}
-function render(){const a=tab==='assign';$('stopBar').style.display=S.cfg.stopped?'flex':'none';$('stopBtn').style.display=S.cfg.stopped?'none':'';
+function render(){if(drag&&drag.on)return;const a=tab==='assign';$('stopBar').style.display=S.cfg.stopped?'flex':'none';$('stopBtn').style.display=S.cfg.stopped?'none':'';
   $('stage').className=a?'edit':'';$('amn').innerHTML=amnHTML(a);
   $('pads').innerHTML=a?padHTML(1,true)+padHTML(2,true):padHTML(tab==='pad1'?1:2,false);
   const st=tab==='setup';document.querySelector('.tabs').style.display=st?'none':'';if(document.activeElement!==$('bn'))$('bn').value=BOARD;$('assignTools').style.display=a?'':'none';$('stage').style.display=st?'none':'';$('setup').style.display=st?'block':'none';document.querySelector('.legend').style.display=st?'none':'';$('fs').style.display=st?'none':'inline-block';
@@ -136,7 +141,7 @@ function setTab(t){const was=tab;tab=t;sel=null;try{history.replaceState(null,''
 function goFull(){const d=document.documentElement;document.body.classList.add('full');(d.requestFullscreen||d.webkitRequestFullscreen||function(){}).call(d)}
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('full')});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('full')});
-function pick(p,i){sel=(sel&&sel.p===p&&sel.i===i)?null:{p,i};render();$('rt').focus()}
+function pick(p,i){if(Date.now()-dragEnd<350)return;sel=(sel&&sel.p===p&&sel.i===i)?null:{p,i};render();$('rt').focus()}
 function setSlot(p,i,n){const m=Date.now();if(n)S.slots[p][i]={n,m};else delete S.slots[p][i];mods[p+':'+i]=m;post({type:'slot',padId:p,i,slot:{n,m}})}
 function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
   if(S.cfg.stopped){msg('Session ended — press Start session first');return}
@@ -144,9 +149,10 @@ function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
   if(!S.map[n]){msg(n+" isn't in today's plan");return}
   for(const p of [0,1,2])for(const k in S.slots[p])if(S.slots[p][k].n===n&&!(sel&&sel.p===p&&sel.i===+k)){msg(n+' is already on '+(p?'Pad '+p:'the amnesty lane'));return}
   let p,i;
-  if(sel){p=sel.p;i=sel.i}else{p=S.padOf[n]||1;const mx=S.cfg['c'+p]*S.cfg['r'+p];i=null;for(let k=0;k<mx;k++)if(!(S.slots[p][k]||{}).n){i=k;break}
+  if(sel){p=sel.p;i=sel.i}else{p=S.padOf[n]||1;const c=Math.max(1,S.cfg['c'+p]),r=Math.max(1,S.cfg['r'+p]);i=null;
+    for(let col=c-1;col>=0&&i===null;col--)for(let row=0;row<r;row++){const k=row*c+col;if(!(S.slots[p][k]||{}).n){i=k;break}}
     if(i===null){msg('Pad '+p+' is full — tap a slot to replace one');return}}
-  setSlot(p,i,n);inp.value='';sel=null;render();msg(n+' → '+(p?'PAD '+p:'AMNESTY')+' · '+S.map[n][2],true)}
+  setSlot(p,i,n);inp.value='';sel=null;render();msg(n+' → '+(p?'PAD '+p+' · LANE '+(i%Math.max(1,S.cfg['c'+p])+1):'AMNESTY')+' · '+S.map[n][2],true)}
 function clearSel(){if(!sel)return;if(S.cfg.stopped){msg('Session ended — press Start session first');return}setSlot(sel.p,sel.i,'');sel=null;render()}
 function saveMeta(){S.ts=Date.now();index();render();syncSetup();post({type:'meta',meta:{_ts:S.ts,plan:S.plan,cfg:S.cfg}})}
 function cfg(k,v){v=Math.max(0,Math.min(k==='red'?20:12,parseInt(v)||0));if(k!=='red')v=Math.max(1,v);S.cfg[k]=v;saveMeta()}
@@ -190,5 +196,28 @@ function setStopAt(v){S.cfg.stopAt=v||'';saveMeta()}
 function tick(){clearTimeout(timer);if(S.cfg.stopped||tab==='setup')return;
   const sm=stopMin(),n=nowMin();if(sm!==null&&lastMin!==null&&lastMin<sm&&n>=sm){lastMin=n;stopAll();return}lastMin=n;
   pull().finally(()=>{timer=setTimeout(tick,3500)})}
+// Drag a placed route to another slot on the same pad (or to/from the amnesty lane). Dropping on a filled slot swaps the two.
+function dragClean(){const g=$('ghost');if(g)g.remove();document.querySelectorAll('.cell.drag,.cell.over').forEach(x=>x.classList.remove('drag','over'))}
+function cellAt(x,y){const e=document.elementFromPoint(x,y);return e&&e.closest?e.closest('.cell[data-i]'):null}
+$('stage').addEventListener('pointerdown',e=>{if(tab!=='assign'||e.button>0)return;const c=e.target.closest('.cell[data-i]');if(!c)return;
+  const p=+c.dataset.p,i=+c.dataset.i,n=(S.slots[p][i]||{}).n;if(n)drag={p,i,n,x:e.clientX,y:e.clientY,on:false}});
+document.addEventListener('pointermove',e=>{if(!drag)return;
+  if(!drag.on){if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<8)return;
+    if(S.cfg.stopped){drag=null;msg('Session ended — press Start session first');return}
+    drag.on=true;const g=document.createElement('div');g.id='ghost';g.textContent=drag.n;document.body.appendChild(g);
+    const src=document.querySelector(`.cell[data-p="${drag.p}"][data-i="${drag.i}"]`);if(src)src.classList.add('drag')}
+  const g=$('ghost');g.style.left=e.clientX+'px';g.style.top=e.clientY+'px';
+  document.querySelectorAll('.cell.over').forEach(x=>x.classList.remove('over'));
+  const t=cellAt(e.clientX,e.clientY);if(t&&!t.classList.contains('drag'))t.classList.add('over')});
+document.addEventListener('pointerup',e=>{if(!drag)return;const d=drag;drag=null;if(!d.on)return;
+  dragEnd=Date.now();const t=cellAt(e.clientX,e.clientY);dragClean();
+  if(t){const tp=+t.dataset.p,ti=+t.dataset.i;
+    if(tp===d.p&&ti===d.i){}
+    else if((S.slots[d.p][d.i]||{}).n!==d.n)msg(d.n+' was changed on another screen — try again');
+    else if(tp!==d.p&&tp!==0&&d.p!==0)msg(d.n+' stays on Pad '+d.p+' — drag within the same pad');
+    else{const o=(S.slots[tp][ti]||{}).n||'';setSlot(tp,ti,d.n);setSlot(d.p,d.i,o);sel=null;
+      msg(d.n+(o?' ⇄ '+o:' moved')+(tp?' · LANE '+(ti%Math.max(1,S.cfg['c'+tp])+1):' · AMNESTY'),true)}}
+  render()});
+document.addEventListener('pointercancel',()=>{if(!drag)return;const on=drag.on;drag=null;if(on){dragClean();render()}});
 syncSetup();index();render();lastMin=nowMin();if(tab==='setup')pull();else tick();
 </script></body></html>
