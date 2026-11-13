@@ -11,7 +11,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);heig
 header{flex:none;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
 h1{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;letter-spacing:2px}h1 span{color:var(--accent)}
 #st{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);margin-left:10px;font-weight:400;letter-spacing:0}
-button,input{font-family:inherit;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px}
+button,input,select{font-family:inherit;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px}
 button{cursor:pointer;font-weight:600}button:hover{border-color:var(--accent)}
 button.go{background:var(--accent);color:#000;border-color:var(--accent)}button.bad{color:var(--red);border-color:#7f2a2a}
 /* Chrome-style tabs */
@@ -92,6 +92,8 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
         <label class="drop" id="dropDa" ondragover="event.preventDefault()" ondrop="event.preventDefault();addFile('da',event.dataTransfer.files[0])"><b>2 · DA ASSIGNMENT EXPORT</b><span>.csv — backup for package counts</span><em id="stDa">Click or drop a file</em><input type="file" id="fDa" accept=".csv,.xlsx,.xls" onchange="addFile('da',this.files[0])"></label>
       </div>
       <div class="row" style="margin-top:8px"><span id="planInfo"></span>&nbsp;·&nbsp;Driver names are never read or stored.</div>
+      <h3>ROUTE TYPE</h3>
+      <div class="row">Typing just a number places a <select id="pre" onchange="setPre(this.value)"></select> route — typing 15 places <b id="preEx" style="color:var(--text)"></b>.</div>
       <h3>GRID SIZE (columns × rows)</h3>
       <div class="row">Pad 1 <input type="number" id="c1" min="1" max="12" onchange="cfg('c1',this.value)"> × <input type="number" id="r1" min="1" max="12" onchange="cfg('r1',this.value)">
         &nbsp; Pad 2 <input type="number" id="c2" min="1" max="12" onchange="cfg('c2',this.value)"> × <input type="number" id="r2" min="1" max="12" onchange="cfg('r2',this.value)">
@@ -106,43 +108,76 @@ body.full{padding:6px 10px}body.full header,body.full .tabs{display:none}body.fu
 </div>
 <div id="toast"></div>
 <script>
+// ───────────── ROUTE TYPES ─────────────
+// The list of route types this board can use. Typing just a number on the board adds the chosen type in front (15 → CX15).
+// HOW TO ADD A ROUTE TYPE:
+//   1. Add it inside the brackets below, in CAPITALS, in quotes, separated by commas.
+//        Example:  const ROUTE_TYPES=['CX','DX','AX'];
+//   2. Save, then push to Vercel.
+//   3. Open Setup on the board and pick it in the "Route type" dropdown.
+// The first one in the list is the default.
+const ROUTE_TYPES=['CX'];
+// Where data is saved, the link options (?board=…), and the slot numbers used for the amnesty lane.
 const API='/api/staging',Q=new URLSearchParams(location.search),AM=[100,101,102];
+// Board name from the link (?board=NAME). Defaults to MAIN.
 const BOARD=(Q.get('board')||'MAIN').toUpperCase().replace(/[^A-Z0-9-]/g,'')||'MAIN';
 const LOCAL=Q.get('local')==='1'||location.protocol==='file:';   // local test: nothing is sent to storage
+// Shortcut for finding something on the page by its id.
 const $=id=>document.getElementById(id);
-let S={plan:[],cfg:{c1:4,r1:6,c2:4,r2:6,red:3,stopAt:'12:00',stopped:false},ts:0,slots:{0:{},1:{},2:{}},map:{},padOf:{},red:new Set()},tab='assign',sel=null,mods={},drag=null,dragEnd=0;
+// Everything the page keeps track of: the plan, the settings (cfg), what is in each slot, the open tab and the selected slot.
+let S={plan:[],cfg:{c1:4,r1:6,c2:4,r2:6,red:3,pre:ROUTE_TYPES[0],stopAt:'12:00',stopped:false},ts:0,slots:{0:{},1:{},2:{}},map:{},padOf:{},red:new Set()},tab='assign',sel=null,mods={},drag=null,dragEnd=0;
+// Shows the pop-up message at the bottom of the screen (green = ok, red = problem).
 function msg(t,ok){const e=$('toast');e.textContent=t;e.className=ok?'ok':'';e.style.display='block';clearTimeout(msg.t);msg.t=setTimeout(()=>e.style.display='none',3200)}
+// Sends a change to storage (skipped in local test mode).
 async function post(o){if(LOCAL)return;try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({board:BOARD},o))});if(!r.ok)throw 0}catch(e){msg('Save failed — check connection')}}
+// Turns a wave time like "10:20 AM" into minutes so waves can be put in order.
 function tm(t){const m=String(t).match(/(\d+):(\d+)\s*(AM|PM)?/i);if(!m)return 0;let h=+m[1];const a=(m[3]||'').toUpperCase();if(a==='PM'&&h!==12)h+=12;if(a==='AM'&&h===12)h=0;return h*60+ +m[2]}
 // Same split as the DOP Planner: sort the wave times, alternate pads, first wave = PAD 2.  Red = top N packages inside each wave.
 function index(){S.map={};S.padOf={};S.red=new Set();const w={};
   S.plan.forEach(r=>{S.map[r[0]]=r;(w[r[1]]=w[r[1]]||[]).push(r)});
   Object.keys(w).sort((a,b)=>tm(a)-tm(b)).forEach((k,i)=>{const p=i%2===0?2:1;w[k].forEach(r=>S.padOf[r[0]]=p);
     if(S.cfg.red>0)w[k].slice().sort((x,y)=>y[3]-x[3]).slice(0,S.cfg.red).forEach(r=>S.red.add(r[0]))})}
-function norm(v){v=String(v||'').trim().toUpperCase().replace(/\s+/g,'');return /^\d+$/.test(v)?'CX'+v:v}
+// The route type chosen in Setup (falls back to the first one in ROUTE_TYPES).
+const pre=()=>ROUTE_TYPES.includes(S.cfg.pre)?S.cfg.pre:ROUTE_TYPES[0];
+// Saves the route type picked in Setup.
+function setPre(v){S.cfg.pre=v;saveMeta()}
+// Cleans up what was typed: a bare number gets the route type put in front (15 → CX15).
+function norm(v){v=String(v||'').trim().toUpperCase().replace(/\s+/g,'');return /^\d+$/.test(v)?pre()+v:v}
+// Builds one slot box: slot number, route, staging location and its colours.
 function cell(p,i,label,edit){const n=(S.slots[p][i]||{}).n||'',r=n&&S.map[n];
   const k='cell'+(n?' f':'')+(n&&S.red.has(n)?' red':'')+(i>=100?' am':'')+(edit&&sel&&sel.p===p&&sel.i===i?' sel':'');
   return `<div class="${k}" ${edit?`data-p="${p}" data-i="${i}" onclick="pick(${p},${i})"`:''}><small>${label}</small><b>${n}</b><i>${r?r[2]:(n&&S.plan.length?'?':'')}</i></div>`}
+// Builds one pad: title, Clear Pad button, the big lane numbers, then the grid of slots.
 function padHTML(p,edit){const c=Math.max(1,S.cfg['c'+p]),r=Math.max(1,S.cfg['r'+p]);let h='';for(let i=0;i<c*r;i++)h+=cell(p,i,i+1,edit);
   return `<section class="pad p${p}" style="--c:${c};--r:${r}"><div class="ph"><h2>PAD ${p}</h2>${edit?`<button class="mini bad" onclick="clearPad(${p})">Clear Pad ${p}</button>`:''}</div><div class="lanes">${Array.from({length:c},(_,k)=>'<div>'+(k+1)+'</div>').join('')}</div><div class="grid">${h}</div></section>`}
+// Builds the amnesty lane (late drivers).
 function amnHTML(edit){return '<h3>AMNESTY LANE<small>late drivers</small></h3>'+AM.map((i,k)=>cell(0,i,'A'+(k+1),edit)).join('')}
+// Redraws the whole screen for the open tab (waits while a route is being dragged).
 function render(){if(drag&&drag.on)return;const a=tab==='assign';$('stopBar').style.display=S.cfg.stopped?'flex':'none';$('stopBtn').style.display=S.cfg.stopped?'none':'';
   $('stage').className=a?'edit':'';$('amn').innerHTML=amnHTML(a);
   $('pads').innerHTML=a?padHTML(1,true)+padHTML(2,true):padHTML(tab==='pad1'?1:2,false);
   const st=tab==='setup';document.querySelector('.tabs').style.display=st?'none':'';if(document.activeElement!==$('bn'))$('bn').value=BOARD;$('assignTools').style.display=a?'':'none';$('stage').style.display=st?'none':'';$('setup').style.display=st?'block':'none';document.querySelector('.legend').style.display=st?'none':'';$('fs').style.display=st?'none':'inline-block';
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
   $('clr').style.display=(sel&&(S.slots[sel.p][sel.i]||{}).n)?'':'none';
-  $('planInfo').textContent=S.plan.length?S.plan.length+' routes loaded':'no plan loaded'}
-function syncSetup(){if(document.activeElement!==$('stopAt'))$('stopAt').value=S.cfg.stopAt||'';['c1','r1','c2','r2','red'].forEach(k=>{if(document.activeElement!==$(k))$(k).value=S.cfg[k]})}
+  $('rt').placeholder='Route # (15 = '+pre()+'15)';$('planInfo').textContent=S.plan.length?S.plan.length+' routes loaded':'no plan loaded'}
+// Fills in the Setup boxes with the current settings.
+function syncSetup(){if(document.activeElement!==$('pre'))$('pre').value=pre();$('preEx').textContent=pre()+'15';if(document.activeElement!==$('stopAt'))$('stopAt').value=S.cfg.stopAt||'';['c1','r1','c2','r2','red'].forEach(k=>{if(document.activeElement!==$(k))$(k).value=S.cfg[k]})}
+// Setup: switch to a different board name.
 function switchBoard(){const v=($('bn').value||'').toUpperCase().replace(/[^A-Z0-9-]/g,'');if(v)location.href='?board='+v+'#setup'}
+// Switches tab. Setup stops live updates; leaving Setup starts them again.
 function setTab(t){const was=tab;tab=t;sel=null;try{history.replaceState(null,'','#'+t)}catch(e){}render();
   if(t==='setup'){clearTimeout(timer);pull()}else if(was==='setup')tick();     // setup = no polling; leaving it starts polling with an immediate refresh
   if(t==='assign')$('rt').focus()}
+// Fullscreen for the pad display screens (Esc leaves it).
 function goFull(){const d=document.documentElement;document.body.classList.add('full');(d.requestFullscreen||d.webkitRequestFullscreen||function(){}).call(d)}
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('full')});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('full')});
+// Tap a slot to select it (tap again to unselect). The next route typed goes into the selected slot.
 function pick(p,i){if(Date.now()-dragEnd<350)return;sel=(sel&&sel.p===p&&sel.i===i)?null:{p,i};render();$('rt').focus()}
+// Puts a route in a slot (or empties it) and saves it.
 function setSlot(p,i,n){const m=Date.now();if(n)S.slots[p][i]={n,m};else delete S.slots[p][i];mods[p+':'+i]=m;post({type:'slot',padId:p,i,slot:{n,m}})}
+// PLACE: checks the route is in today's plan and not already placed, finds its pad,
+// then fills the highest lane first, top to bottom, before moving one lane down.
 function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
   if(S.cfg.stopped){msg('Session ended — press Start session first');return}
   if(!S.plan.length){msg("Load today's plan first (SETUP tab)");return}
@@ -153,16 +188,24 @@ function place(){const inp=$('rt'),n=norm(inp.value);if(!n)return;
     for(let col=c-1;col>=0&&i===null;col--)for(let row=0;row<r;row++){const k=row*c+col;if(!(S.slots[p][k]||{}).n){i=k;break}}
     if(i===null){msg('Pad '+p+' is full — tap a slot to replace one');return}}
   setSlot(p,i,n);inp.value='';sel=null;render();msg(n+' → '+(p?'PAD '+p+' · LANE '+(i%Math.max(1,S.cfg['c'+p])+1):'AMNESTY')+' · '+S.map[n][2],true)}
+// Clear slot button: empties the selected slot.
 function clearSel(){if(!sel)return;if(S.cfg.stopped){msg('Session ended — press Start session first');return}setSlot(sel.p,sel.i,'');sel=null;render()}
+// Saves the plan and settings so every screen picks them up.
 function saveMeta(){S.ts=Date.now();index();render();syncSetup();post({type:'meta',meta:{_ts:S.ts,plan:S.plan,cfg:S.cfg}})}
+// Setup: changes a grid size or the red-count setting (kept within limits).
 function cfg(k,v){v=Math.max(0,Math.min(k==='red'?20:12,parseInt(v)||0));if(k!=='red')v=Math.max(1,v);S.cfg[k]=v;saveMeta()}
+// Turns a spreadsheet time value into a wave time like 10:20 AM.
 function wave(v){if(typeof v==='number'&&v>=0&&v<1){const m=Math.round(v*1440),h=Math.floor(m/60);return String((h%12)||12).padStart(2,'0')+':'+String(m%60).padStart(2,'0')+(h<12?' AM':' PM')}return String(v||'').trim()}
+// The two uploaded files (Day of Ops plan and DA export) before they are combined.
 const RAW={dop:null,da:null};
+// Resets the two file boxes in Setup.
 function resetDrops(){RAW.dop=RAW.da=null;[['dop','stDop','dropDop'],['da','stDa','dropDa']].forEach(x=>{$(x[1]).textContent='Click or drop a file';$(x[2]).classList.remove('ok')})}
+// Reads an uploaded spreadsheet.
 async function addFile(k,f){if(!f)return;
   try{const wb=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});RAW[k]=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''})}catch(e){msg("Couldn't read that file");return}
   const id=k==='dop'?['stDop','dropDop','fDop']:['stDa','dropDa','fDa'];
   $(id[0]).textContent='✓ '+f.name+' — '+RAW[k].length+' rows';$(id[1]).classList.add('ok');$(id[2]).value='';buildPlan()}
+// Builds today's plan from the files: route, wave, staging location, package count. Driver names are not read.
 function buildPlan(){const dop=RAW.dop,da=RAW.da;
   if(!dop||!dop.length){if(da)msg('Now add the Day of Ops Plan (.xlsx)');return}
   const col=(o,c)=>{const ks=Object.keys(o||{});for(const x of c){const k=ks.find(k=>k.toLowerCase().replace(/[\s_]/g,'')===x);if(k)return k}return null};
@@ -171,10 +214,14 @@ function buildPlan(){const dop=RAW.dop,da=RAW.da;
   const dm={};if(da&&da.length){const a=col(da[0],['routecode','route']),b=col(da[0],['numpackages','packages']);if(a&&b)da.forEach(r=>dm[String(r[a]).trim().toUpperCase()]=+r[b]||0)}
   S.plan=dop.filter(r=>String(r[rc]).trim()).map(r=>{const c=String(r[rc]).trim().toUpperCase();return[c,wave(r[wc]),String(r[sc]||'').trim(),(pc&&+r[pc])||dm[c]||0]});
   saveMeta();msg('Loaded '+S.plan.length+' routes',true)}
+// Clear Pad button: empties that one pad only (the other pad and the amnesty lane stay).
 async function clearPad(p){if(S.cfg.stopped){msg('Session ended — press Start session first');return}if(!confirm('Clear all routes on Pad '+p+'? (amnesty lane stays)'))return;
   const now=Date.now();for(const k in S.slots[p])mods[p+':'+k]=now;S.slots[p]={};if(sel&&sel.p===p)sel=null;render();await post({type:'clearpad',padId:p})}
+// Setup: clears both pads but keeps today's plan.
 async function clearPads(){if(!confirm("Clear all routes from both pads? (keeps today's plan)"))return;await post({type:'clearslots'});S.slots={0:{},1:{},2:{}};mods={};sel=null;render()}
+// Setup: deletes everything for this board.
 async function wipe(){if(!confirm("Delete ALL of today's data (plan + both pads) from storage?"))return;await post({type:'reset'});S.plan=[];S.ts=0;S.slots={0:{},1:{},2:{}};mods={};sel=null;resetDrops();index();render();msg('Deleted',true)}
+// Takes the latest data from storage and merges it in, keeping changes made on this screen in the last 8 seconds.
 function apply(d){if(!d||d.error)return;
   if(d.meta){if(d.meta._ts>S.ts){S.plan=d.meta.plan||[];S.cfg=Object.assign(S.cfg,d.meta.cfg||{});S.ts=d.meta._ts;syncSetup()}}
   else if(S.ts&&Date.now()-S.ts>8000){S.plan=[];S.ts=0}
@@ -183,24 +230,36 @@ function apply(d){if(!d||d.error)return;
     for(const key in mods){const[pp,k]=key.split(':');if(+pp===p&&now-mods[key]<8000){if(S.slots[p][k])nw[k]=S.slots[p][k];else delete nw[k]}}
     S.slots[p]=nw});
   index();render()}
+// Fetches the latest board from storage and updates the status text next to the title.
 async function pull(){if(LOCAL){$('st').textContent=BOARD+' · LOCAL TEST (not saved)';return}try{const r=await fetch(API+'?board='+BOARD,{cache:'no-store'});apply(await r.json());$('st').textContent=BOARD+(tab==='setup'?' · setup — not polling':' · live')}catch(e){$('st').textContent=BOARD+' · offline'}}
+// Which tab to open on, from the end of the link (#assign, #pad1, #pad2).
 const h=location.hash.slice(1);tab=['assign','pad1','pad2'].includes(h)?h:'setup';   // no link hash → open on Setup (no polling); #pad1 / #pad2 / #assign go straight to a board view
+// Timer for live updates, and the clock used for the auto-end time.
 let timer=null,lastMin=null;
 const nowMin=()=>{const d=new Date();return d.getHours()*60+d.getMinutes()};
+// The auto-end time from Setup, in minutes.
 function stopMin(){const m=String(S.cfg.stopAt||'').match(/^(\d{1,2}):(\d{2})$/);return m?(+m[1])*60+ +m[2]:null}
+// Ends the session on every screen.
 function stopAll(){if(S.cfg.stopped)return;S.cfg.stopped=true;clearTimeout(timer);saveMeta();msg('Session ended — all screens will stop',true)}
+// End Session button (asks first).
 function endSession(){if(confirm('End the session? Every screen stops updating until someone presses Start session.'))stopAll()}
+// Start session button.
 async function resume(){await pull();S.cfg.stopped=false;saveMeta();lastMin=nowMin();tick()}   // pull first so a stale screen can't overwrite a newer plan
+// Setup: saves the auto-end time.
 function setStopAt(v){S.cfg.stopAt=v||'';saveMeta()}
 // Same constant 3.5s checking as before. The only change: once the board is flagged "stopped" (by Stop button or the auto-stop time), every screen stops asking.
 function tick(){clearTimeout(timer);if(S.cfg.stopped||tab==='setup')return;
   const sm=stopMin(),n=nowMin();if(sm!==null&&lastMin!==null&&lastMin<sm&&n>=sm){lastMin=n;stopAll();return}lastMin=n;
   pull().finally(()=>{timer=setTimeout(tick,3500)})}
 // Drag a placed route to another slot on the same pad (or to/from the amnesty lane). Dropping on a filled slot swaps the two.
+// Removes the floating label and highlights when a drag finishes.
 function dragClean(){const g=$('ghost');if(g)g.remove();document.querySelectorAll('.cell.drag,.cell.over').forEach(x=>x.classList.remove('drag','over'))}
+// Finds which slot is under the finger or mouse.
 function cellAt(x,y){const e=document.elementFromPoint(x,y);return e&&e.closest?e.closest('.cell[data-i]'):null}
+// Finger or mouse goes down on a filled slot: remember it as a possible drag.
 $('stage').addEventListener('pointerdown',e=>{if(tab!=='assign'||e.button>0)return;const c=e.target.closest('.cell[data-i]');if(!c)return;
   const p=+c.dataset.p,i=+c.dataset.i,n=(S.slots[p][i]||{}).n;if(n)drag={p,i,n,x:e.clientX,y:e.clientY,on:false}});
+// Moving: after a small movement it becomes a drag. Show the floating label and highlight the slot underneath.
 document.addEventListener('pointermove',e=>{if(!drag)return;
   if(!drag.on){if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<8)return;
     if(S.cfg.stopped){drag=null;msg('Session ended — press Start session first');return}
@@ -209,6 +268,7 @@ document.addEventListener('pointermove',e=>{if(!drag)return;
   const g=$('ghost');g.style.left=e.clientX+'px';g.style.top=e.clientY+'px';
   document.querySelectorAll('.cell.over').forEach(x=>x.classList.remove('over'));
   const t=cellAt(e.clientX,e.clientY);if(t&&!t.classList.contains('drag'))t.classList.add('over')});
+// Let go: move the route there (or swap the two), unless it is on a different pad.
 document.addEventListener('pointerup',e=>{if(!drag)return;const d=drag;drag=null;if(!d.on)return;
   dragEnd=Date.now();const t=cellAt(e.clientX,e.clientY);dragClean();
   if(t){const tp=+t.dataset.p,ti=+t.dataset.i;
@@ -218,6 +278,9 @@ document.addEventListener('pointerup',e=>{if(!drag)return;const d=drag;drag=null
     else{const o=(S.slots[tp][ti]||{}).n||'';setSlot(tp,ti,d.n);setSlot(d.p,d.i,o);sel=null;
       msg(d.n+(o?' ⇄ '+o:' moved')+(tp?' · LANE '+(ti%Math.max(1,S.cfg['c'+tp])+1):' · AMNESTY'),true)}}
   render()});
+// Drag interrupted: put everything back.
 document.addEventListener('pointercancel',()=>{if(!drag)return;const on=drag.on;drag=null;if(on){dragClean();render()}});
+// Start-up: fill the route type dropdown, draw the screen, then start live updates.
+$('pre').innerHTML=ROUTE_TYPES.map(t=>'<option>'+t+'</option>').join('');
 syncSetup();index();render();lastMin=nowMin();if(tab==='setup')pull();else tick();
 </script></body></html>
