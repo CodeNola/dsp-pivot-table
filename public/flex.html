@@ -399,6 +399,151 @@
   body.display-mode #dashboard { pointer-events: none; }
   body.display-mode .container { padding: 0; max-width: none; }
 
+
+  /* ---- SINGLE-PAD TV mode: one pad fills the whole screen, big + bold ---- */
+  .pad-tv {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 7px;
+  }
+  .pad-tv:hover { border-color: var(--accent); color: var(--accent); }
+
+  body.display-pad { overflow: hidden; background: #05070c; }
+  body.display-pad .container { padding: 0 !important; max-width: none !important; }
+  body.display-pad #dashboard {
+    position: fixed !important; inset: 0 !important; left: 0 !important; top: 0 !important;
+    width: 100vw !important; height: 100vh !important; transform: none !important;
+    display: flex !important; flex-direction: column; padding: 0 !important; margin: 0 !important;
+  }
+  body.display-pad #dashboard > *:not(.pads-section) { display: none !important; }
+  body.display-pad .pads-section { flex: 1; min-height: 0; margin: 0 !important; display: flex; }
+  body.display-pad .pads-section > *:not(.pads-grid) { display: none !important; }
+  body.display-pad #padsGrid {
+    flex: 1; min-height: 0; display: flex !important; padding: 0.8vh 0.8vw; gap: 0 !important;
+  }
+  body.display-pad #padsGrid > *:not(.tv-target) { display: none !important; }
+
+  body.display-pad .pad.tv-target {
+    flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+    padding: 1vh 1.2vw; border-width: 0.4vh; border-radius: 1.6vh;
+  }
+  body.display-pad .pad.tv-target.role-late,
+  body.display-pad .pad.tv-target.role-main,
+  body.display-pad .pad.tv-target.role-stage,
+  body.display-pad .pad.tv-target.role-extra { border-top-width: 1.2vh; }
+  /* hide every editing control */
+  body.display-pad .tv-target .pad-header-controls,
+  body.display-pad .tv-target .pad-drag-handle,
+  body.display-pad .tv-target .pad-config-row,
+  body.display-pad .tv-target .pad-actions,
+  body.display-pad .tv-target .movewave-btn,
+  body.display-pad .tv-target .pad-meta > span:last-child { display: none !important; }
+
+  body.display-pad .tv-target .pad-header { margin: 0 0 0.4vh; align-items: center; }
+  body.display-pad .tv-target .pad-name-input {
+    width: 100%; font-size: 7vh; font-weight: 800; letter-spacing: 0.3vh;
+    border: none; line-height: 1;
+  }
+  body.display-pad .tv-target .pad-meta {
+    font-size: 3vh; font-weight: 800; margin: 0 0 0.8vh; justify-content: flex-start; gap: 3vw;
+    color: var(--text);
+  }
+  body.display-pad .tv-target .pad-meta strong { font-size: 3.4vh; font-weight: 800; }
+
+  /* timer: one compact horizontal row so the slots get the height */
+  body.display-pad .tv-target .pad-timer {
+    display: flex; align-items: center; justify-content: center; gap: 2.5vw;
+    padding: 0.6vh 1vw; margin: 0 0 1vh; border-width: 0.3vh; flex: 0 0 auto;
+  }
+  body.display-pad .tv-target .pad-timer-banner { font-size: 3.4vh; font-weight: 800; margin: 0; }
+  body.display-pad .tv-target .pad-timer-display { font-size: 9vh; font-weight: 800; }
+  body.display-pad .tv-target .pad-timer-sub { font-size: 2.4vh; font-weight: 700; margin: 0; }
+  body.display-pad .tv-target .pad-timer-btn { display: none; }
+
+  body.display-pad .tv-target .lane-bar { gap: 0.6vw; margin-bottom: 0.6vh; }
+  body.display-pad .tv-target .lane-wave,
+  body.display-pad .tv-target .lane-btn { font-size: 2vh; font-weight: 800; padding: 0.4vh 0.2vw; }
+
+  /* the slots fill ALL remaining space and stretch evenly */
+  body.display-pad .tv-target .slots-grid {
+    flex: 1; min-height: 0; margin: 0 !important; gap: 0.9vh 0.7vw;
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  body.display-pad .tv-target .slot {
+    container-type: size; min-height: 0; padding: 0.5vh 0.5vw; gap: 0.5vh;
+    border-width: 0.3vh; border-radius: 1.2vh; background: var(--panel-2);
+  }
+  body.display-pad .tv-target .slot.empty { opacity: 0.55; }
+  body.display-pad .tv-target .slot.loading   { background: rgba(255,184,0,0.20); border-color: var(--warn); }
+  body.display-pad .tv-target .slot.dispatched{ background: rgba(0,255,136,0.16); border-color: var(--accent); }
+  body.display-pad .tv-target .slot.late      { background: rgba(255,56,96,0.24); border-color: var(--danger); }
+
+  body.display-pad .tv-target .slot-status {
+    flex: 0 0 26%; display: flex; align-items: center; justify-content: center;
+    font-size: 3vh; font-size: 21cqh; font-weight: 800; padding: 0; border-radius: 0.8vh;
+  }
+  body.display-pad .tv-target .slot-route-row { flex: 1 1 0; min-height: 0; gap: 0.4vw; }
+  body.display-pad .tv-target .slot-type,
+  body.display-pad .tv-target .slot-input {
+    height: 100%; background: transparent; border: none; border-radius: 0.6vh;
+    font-weight: 800; font-size: 3.4vh; font-size: 32cqh;
+    -webkit-appearance: none; appearance: none; padding: 0; text-align: center;
+    text-align-last: center; line-height: 1;
+  }
+  body.display-pad .tv-target .slot-type { flex: 0 0 30%; width: auto; color: var(--blue); }
+  body.display-pad .tv-target .slot-route-row .slot-route { color: #fff; text-align: left; }
+  body.display-pad .tv-target .slot-stage {
+    flex: 0 0 28%; height: auto; width: 100%; color: #7fc0ff;
+    font-size: 2.6vh; font-size: 22cqh; font-weight: 800; text-align: center;
+  }
+  body.display-pad .tv-target .slot-input::placeholder { color: transparent; }
+
+  body.display-pad .tv-target .pad-status-line {
+    margin: 1vh 0 0; padding: 0.8vh 1vw; font-size: 2.6vh; font-weight: 800; flex: 0 0 auto;
+  }
+  body.display-pad #displayExit { font-size: 12px; }
+  /* v3 FIX: the base .pads-grid has align-items:start, so the pad card only
+     wrapped its content and the slots collapsed to thin lines. Stretch it. */
+  body.display-pad #padsGrid { align-items: stretch !important; grid-template-columns: none !important; }
+  body.display-pad #padsGrid > .tv-target { height: 100%; align-self: stretch; }
+  /* v4 FIX: route number was squeezed to 0px wide. Use an explicit 3-column grid per slot. */
+  body.display-pad .tv-target .slot {
+    display: grid !important; grid-template-columns: 22% minmax(0, 1fr) 30%; align-items: stretch; gap: 0.5vw;
+  }
+  body.display-pad .tv-target .slot-status { width: auto; min-width: 0; flex: none; font-size: min(34cqh, 3.6cqw); overflow: hidden; }
+  body.display-pad .tv-target .slot-route-row { display: flex; min-width: 0; width: auto; flex: none; }
+  body.display-pad .tv-target .slot-type { flex: 0 0 auto; width: auto; padding: 0 0.3vw; font-size: min(46cqh, 9cqw); }
+  body.display-pad .tv-target .slot-route-row .slot-route { flex: 1 1 0; width: 0; min-width: 0; text-align: left; color: #fff; font-size: min(60cqh, 13cqw); }
+  body.display-pad .tv-target .slot-stage { flex: none; width: auto; min-width: 0; height: auto; font-size: min(42cqh, 8cqw); }
+
+  /* --- v2: compact top + one-line slots so routes always fit --- */
+  body.display-pad .pad.tv-target {
+    display: grid; grid-template-columns: 28vw minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto; column-gap: 2vw; align-content: stretch;
+  }
+  body.display-pad .tv-target .pad-header   { grid-column: 1; grid-row: 1; margin: 0; }
+  body.display-pad .tv-target .pad-meta     { grid-column: 2; grid-row: 1; align-self: center; margin: 0; }
+  body.display-pad .tv-target .pad-timer    { grid-column: 1 / -1; grid-row: 2; margin: 0.5vh 0; padding: 0.3vh 1vw; }
+  body.display-pad .tv-target .lane-bar     { grid-column: 1 / -1; grid-row: 3; margin: 0 0 0.5vh; }
+  body.display-pad .tv-target .slots-grid   { grid-column: 1 / -1; grid-row: 4; }
+  body.display-pad .tv-target .pad-status-line { grid-column: 1 / -1; grid-row: 5; margin: 0.6vh 0 0; padding: 0.5vh 1vw; font-size: 2.4vh; }
+  body.display-pad .tv-target .pad-name-input { font-size: 5.5vh; width: 100%; }
+  body.display-pad .tv-target .pad-meta { font-size: 2.6vh; }
+  body.display-pad .tv-target .pad-meta strong { font-size: 3vh; }
+  body.display-pad .tv-target .pad-timer-banner { font-size: 2.6vh; }
+  body.display-pad .tv-target .pad-timer-display { font-size: 6vh; }
+  body.display-pad .tv-target .pad-timer-sub { font-size: 2vh; }
+  body.display-pad .tv-target .lane-wave,
+  body.display-pad .tv-target .lane-btn { font-size: 1.8vh; }
+
+  /* each slot = ONE row: [status] [type + number] [stage] */
+  body.display-pad .tv-target .slot { flex-direction: row; align-items: stretch; gap: 0.5vw; padding: 0.4vh 0.5vw; }
+  body.display-pad .tv-target .slot-status { flex: 0 0 18%; font-size: 3vh; font-size: min(44cqh, 7cqw); }
+  body.display-pad .tv-target .slot-route-row { flex: 1 1 0; min-width: 0; align-items: stretch; }
+  body.display-pad .tv-target .slot-type,
+  body.display-pad .tv-target .slot-input { font-size: 3vh; font-size: min(46cqh, 8cqw); }
+  body.display-pad .tv-target .slot-type { flex: 0 0 34%; }
+  body.display-pad .tv-target .slot-stage { flex: 0 0 34%; width: auto; height: auto; font-size: 2.6vh; font-size: min(40cqh, 7cqw); }
+
   .pad-actions {
     display: flex; gap: 6px; flex-wrap: wrap;
   }
@@ -1685,14 +1830,41 @@
   // the whole thing fits the screen with no scrolling — works on a phone or a
   // 65" TV. It's opt-in per screen, so operators' editing views are untouched.
   let displayMode = false;
+  let displayPadId = null;  // null = whole board; a number = show ONLY that pad, full-screen
   const DISPLAY_W = 1600;   // design width the board is laid out at before scaling
 
-  function enterDisplay() {
+  // Find a pad from a URL value: matches the pad's id OR its name (case-insensitive).
+  function findPadByParam(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const key = String(v).trim().toLowerCase();
+    const p = pads.find(x => String(x.id) === key) ||
+              pads.find(x => String(x.name || '').trim().toLowerCase() === key);
+    return p ? p.id : null;
+  }
+
+  // enterDisplay()      → the whole board scaled to fit (original behaviour)
+  // enterDisplay(padId) → just that one pad, filling the screen in big bold text
+  function enterDisplay(padId) {
+    const wantPad = (typeof padId === 'number' || (typeof padId === 'string' && padId !== ''))
+                    ? +padId : null;
+    displayPadId = (wantPad !== null && getPad(wantPad)) ? wantPad : null;
     displayMode = true;
     document.body.classList.add('display-mode');
+    document.body.classList.toggle('display-pad', displayPadId !== null);
     // Remember this so the screen comes back in Display mode after a refresh or
     // reboot — no link to remember, just click Display once on that screen.
-    try { if (BOARD) localStorage.setItem('flexDisplayBoard', BOARD); } catch (e) {}
+    try {
+      if (BOARD) localStorage.setItem('flexDisplayBoard', BOARD);
+      if (displayPadId !== null) localStorage.setItem('flexDisplayPad', String(displayPadId));
+      else localStorage.removeItem('flexDisplayPad');
+    } catch (e) {}
+    // Single-pad view: go true full-screen (hides browser bars) when the click allows it.
+    if (displayPadId !== null) {
+      try {
+        const de = document.documentElement;
+        if (!document.fullscreenElement && de.requestFullscreen) de.requestFullscreen().catch(() => {});
+      } catch (e) {}
+    }
     renderEverything();       // re-layout (hide add tile, fill columns)
     fitDisplay();
     setTimeout(fitDisplay, 60);
@@ -1701,15 +1873,53 @@
 
   function exitDisplay() {
     displayMode = false;
+    displayPadId = null;
     document.body.classList.remove('display-mode');
-    try { localStorage.removeItem('flexDisplayBoard'); } catch (e) {}
+    document.body.classList.remove('display-pad');
+    try { localStorage.removeItem('flexDisplayBoard'); localStorage.removeItem('flexDisplayPad'); } catch (e) {}
+    try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); } catch (e) {}
     const el = document.getElementById('dashboard');
     if (el) { el.style.transform = ''; el.style.width = ''; el.style.position = ''; el.style.left = ''; el.style.top = ''; }
     renderEverything();       // restore normal layout (add tile back, normal columns)
   }
 
+  // Single-pad view: CSS already makes the pad fill the screen, so no scaling is
+  // needed. The only thing to work out is how many COLUMNS of slots look best on
+  // this screen when the pad's grid is "auto" (a fixed grid like 4x6 is honoured).
+  function fitPadView() {
+    const el = document.getElementById('dashboard');
+    if (!el) return;
+    el.style.transform = ''; el.style.width = ''; el.style.position = ''; el.style.left = ''; el.style.top = '';
+    const card = document.querySelector('#padsGrid .pad.tv-target');
+    if (!card) return;
+    const pad = getPad(+card.dataset.padId);
+    const grid = card.querySelector('.slots-grid');
+    if (!pad || !grid) return;
+    if (pad.slotCols && pad.slotCols !== 'auto') return;       // fixed grid: leave as set
+    const n = grid.querySelectorAll('.slot').length;
+    if (!n) return;
+    const W = grid.clientWidth, H = grid.clientHeight;
+    if (!W || !H) return;
+    let bestC = 1, bestScore = Infinity;
+    for (let c = 1; c <= n; c++) {
+      const r = Math.ceil(n / c);
+      const ratio = (W / c) / (H / r);                         // slot width ÷ height
+      const score = Math.abs(Math.log(ratio / 3.2));           // ~3.2:1 reads best
+      if (score < bestScore) { bestScore = score; bestC = c; }
+    }
+    grid.style.gridTemplateColumns = 'repeat(' + bestC + ', 1fr)';
+    grid.style.gridTemplateRows = 'repeat(' + Math.ceil(n / bestC) + ', minmax(0, 1fr))';
+  }
+
   function fitDisplay() {
     if (!displayMode) return;
+    if (displayPadId !== null) {
+      if (!getPad(displayPadId)) {           // the pad was removed → fall back to the whole board
+        displayPadId = null;
+        document.body.classList.remove('display-pad');
+        try { localStorage.removeItem('flexDisplayPad'); } catch (e) {}
+      } else { fitPadView(); return; }
+    }
     const el = document.getElementById('dashboard');
     if (!el || el.classList.contains('hidden')) return;
     const vw = window.innerWidth, vh = window.innerHeight;
@@ -1754,6 +1964,7 @@
     }
   }
   window.addEventListener('resize', () => { fitDisplay(); relabelLanes(); });
+  document.addEventListener('fullscreenchange', () => { setTimeout(fitDisplay, 80); });
 
   // Live indicator in the header.
   function setLive(mode) {
@@ -3064,6 +3275,7 @@
       const card = document.createElement('div');
       card.className = `pad role-${pad.role}`;
       card.dataset.padId = pad.id;
+      if (displayMode && displayPadId !== null && pad.id === displayPadId) card.classList.add('tv-target');
 
       const filled = pad.slots.filter(s => s !== 'empty').length;
       const waveTxt = pad.waveIdx !== null ? `W${waves[pad.waveIdx].num} (${waves[pad.waveIdx].deadline})` : '—';
@@ -3150,10 +3362,11 @@
           <div class="pad-header-controls">
             <input class="pad-cap-input" type="number" min="1" max="60" value="${pad.capacity}"
                    onchange="setPadCapacity(${pad.id}, this.value)" title="Slots on this pad">
+            <button class="pad-tv" onclick="enterDisplay(${pad.id})" title="Show ONLY this pad full-screen (for a TV)">📺</button>
             <button class="pad-remove" onclick="removePad(${pad.id})" title="Remove pad">✕</button>
           </div>
         </div>
-        <div style="margin-bottom:10px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+        <div class="pad-config-row" style="margin-bottom:10px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
           <select class="pad-role-select" onchange="setPadRole(${pad.id}, this.value)" title="Pad role">${roleOptionsHtml}</select>
           <select class="pad-role-select" onchange="setPadFeed(${pad.id}, this.value)" title="When the chosen pad finishes a wave, this pad's wave moves into it">${feedOptions}</select>
           <!-- Per-pad slot-grid. Type "4x6" (columns × rows) to set both the
@@ -4026,13 +4239,14 @@
 
     const params = new URLSearchParams(location.search);
     const urlBoard = params.get('board');
-    const wantTv = params.get('tv') === '1' || params.get('display') === '1';
+    const wantTv = params.get('tv') === '1' || params.get('display') === '1' || params.has('pad');
+    const urlPad = params.get('pad');   // e.g. ?board=PNP1&pad=Pad%201  (pad id or name)
     const bn = document.getElementById('boardName');
 
     // If this screen was left in Display mode before, come back to it
     // automatically — no link to remember.
-    let savedDisplayBoard = null;
-    try { savedDisplayBoard = localStorage.getItem('flexDisplayBoard'); } catch (e) {}
+    let savedDisplayBoard = null, savedDisplayPad = null;
+    try { savedDisplayBoard = localStorage.getItem('flexDisplayBoard'); savedDisplayPad = localStorage.getItem('flexDisplayPad'); } catch (e) {}
 
     // Pre-fill the last board name used on this device (convenience only).
     try { const last = localStorage.getItem('flexLastBoard'); if (last && bn) bn.value = last; } catch (e) {}
@@ -4041,11 +4255,11 @@
     if (urlBoard && bn) {
       bn.value = urlBoard;
       await openBoard();
-      if (wantTv) enterDisplay();
+      if (wantTv) enterDisplay(findPadByParam(urlPad));
     } else if (savedDisplayBoard && bn) {
       bn.value = savedDisplayBoard;
       await openBoard();
-      enterDisplay();
+      enterDisplay(savedDisplayPad !== null ? findPadByParam(savedDisplayPad) : null);
     } else if (bn) {
       bn.focus();
     }
